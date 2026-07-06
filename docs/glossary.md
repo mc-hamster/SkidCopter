@@ -54,6 +54,10 @@ The no-command position of your controls.
 
 For a centered joystick or self-centering pot, neutral is the middle voltage.
 
+## Regenerative Braking
+
+Braking through the motor controller by commanding braking current. Depending on the VESC setup and battery state, some energy may return to the battery. It is not the same as a mechanical brake.
+
 ## Skid Steer
 
 A steering style where the left side and right side can be commanded differently. To turn, one side moves faster than the other, or one side moves forward while the other moves backward.

@@ -177,6 +177,33 @@
 (def *cruise-throttle-cancel-delta* 0.20)
 
 ; ----------------------------
+; Brake input
+; ----------------------------
+
+; Dedicated operator brake input. When active, drive power is disabled, cruise
+; is cancelled, the script disarms, and active driven motors receive
+; *brake-command* as a regenerative brake command. Releasing brake requires
+; neutral controls before the script can arm again.
+;
+; Supported brake modes:
+;   'off        - no dedicated brake input.
+;   'local-gpio - local GPIO brake switch.
+;   'local-adc  - local ADC threshold brake input.
+;   'can-adc    - ADC threshold brake input from the CAN input VESC.
+(def *brake-mode* 'off)
+
+; Defaults are active-low GPIO with pull-up, matching a simple switch wired
+; from GPIO to GND. Choose a GPIO that is not already used by another input.
+(def *brake-gpio-pin* 6)
+(def *brake-gpio-mode* 'pin-mode-in-pu)
+(def *brake-active-high* nil)
+
+(def *brake-adc-channel* 4)
+(def *brake-adc-threshold-v* 1.50)
+(def *brake-adc-active-high* t)
+(def *can-brake-adc-channel* 4)
+
+; ----------------------------
 ; Motor command configuration
 ; ----------------------------
 
@@ -203,9 +230,11 @@
 (def *command-off-delay-sec* 0.08)
 
 ; Brake command is relative current in 'current-rel mode and amps in 'current
-; mode. For 'duty and 'rpm the script sends 0 instead.
+; mode. For 'duty and 'rpm the script sends 0 instead. *brake-command* is used
+; only by the optional dedicated brake input.
 (def *neutral-brake-command* 0.00)
 (def *disable-brake-command* 0.08)
+(def *brake-command* 0.12)
 (def *neutral-command-deadband* 0.03)
 
 ; Optional status guards. Enable only after motor CAN status messages are
@@ -389,6 +418,7 @@
         (not (eq *input-mode* 'local-adc))
         (eq *direction-mode* 'can-adc)
         (eq *enable-mode* 'can-adc)
+        (eq *brake-mode* 'can-adc)
         (eq *cruise-mode* 'can-adc)
         (eq *cruise-cancel-mode* 'can-adc)))
 
@@ -562,6 +592,23 @@
         *can6-fresh*
         t))
 
+(defun brake-fresh ()
+    (if (eq *brake-mode* 'can-adc)
+        *can6-fresh*
+        t))
+
+(defun read-brake ()
+    (if (eq *brake-mode* 'off)
+        nil
+        (if (eq *brake-mode* 'local-gpio)
+            (let ((pin-state (gpio-read *brake-gpio-pin*)))
+                (if *brake-active-high* (= pin-state 1) (= pin-state 0)))
+            (if (eq *brake-mode* 'local-adc)
+                (selector-active (get-adc *brake-adc-channel*) *brake-adc-threshold-v* *brake-adc-active-high*)
+                (if (eq *brake-mode* 'can-adc)
+                    (selector-active (canget-adc *input-can-id* *can-brake-adc-channel*) *brake-adc-threshold-v* *brake-adc-active-high*)
+                    nil)))))
+
 (defun read-cruise-request ()
     (if (eq *cruise-mode* 'off)
         nil
@@ -627,7 +674,7 @@
             (setq *cruise-active* nil)
             (print (list 'skid-fault reason)))))
 
-(defun current-fault-reason (fresh direction-ok enable-ok cruise-ok status-ok temp-ok)
+(defun current-fault-reason (fresh direction-ok enable-ok cruise-ok brake-ok status-ok temp-ok)
     (if (not fresh)
         'input
         (if (not direction-ok)
@@ -636,11 +683,13 @@
                 'enable-stale
                 (if (not cruise-ok)
                     'cruise-stale
-                    (if (not status-ok)
-                        'motor-stale
-                        (if (not temp-ok)
-                            'thermal
-                            nil)))))))
+                    (if (not brake-ok)
+                        'brake-stale
+                        (if (not status-ok)
+                            'motor-stale
+                            (if (not temp-ok)
+                                'thermal
+                                nil))))))))
 
 (defun clear-fault-if-safe (enabled throttle steer fault-now)
     (if (and
@@ -843,6 +892,13 @@
         (send-active-brake (drive-right-front) *right-front-id* *disable-brake-command*)
         (send-active-brake (drive-right-rear) *right-rear-id* *disable-brake-command*)))
 
+(defun send-operator-brake ()
+    (progn
+        (send-active-brake (drive-left-front) *left-front-id* *brake-command*)
+        (send-active-brake (drive-left-rear) *left-rear-id* *brake-command*)
+        (send-active-brake (drive-right-front) *right-front-id* *brake-command*)
+        (send-active-brake (drive-right-rear) *right-rear-id* *brake-command*)))
+
 (defun heartbeat-off ()
     (if *heartbeat-enable*
         (if (= *heartbeat-state* 0)
@@ -926,6 +982,13 @@
         (eq *enable-mode* 'local-adc)
         (eq *enable-mode* 'can-adc)))
 
+(defun valid-brake-mode ()
+    (or
+        (eq *brake-mode* 'off)
+        (eq *brake-mode* 'local-gpio)
+        (eq *brake-mode* 'local-adc)
+        (eq *brake-mode* 'can-adc)))
+
 (defun valid-cruise-mode ()
     (or
         (eq *cruise-mode* 'off)
@@ -950,6 +1013,8 @@
         (> *direction-change-command-threshold* 0.0)
         (> *loop-overrun-sec* 0.0)
         (> *heartbeat-period-sec* 0.0)
+        (>= *brake-command* 0.0)
+        (or (not (eq *brake-mode* 'local-gpio)) (>= *brake-gpio-pin* 0))
         (or (not *heartbeat-enable*) (>= *heartbeat-gpio-pin* 0))))
 
 (defun start-can ()
@@ -962,6 +1027,11 @@
 (defun setup-enable-input ()
     (if (eq *enable-mode* 'local-gpio)
         (gpio-configure *enable-gpio-pin* *enable-gpio-mode*)
+        nil))
+
+(defun setup-brake-input ()
+    (if (eq *brake-mode* 'local-gpio)
+        (gpio-configure *brake-gpio-pin* *brake-gpio-mode*)
         nil))
 
 (defun setup-direction-input ()
@@ -999,6 +1069,7 @@
         (valid-input-mode)
         (valid-direction-mode)
         (valid-enable-mode)
+        (valid-brake-mode)
         (valid-cruise-mode)
         (valid-cruise-cancel-mode)
         (valid-cruise-latch-mode)
@@ -1006,6 +1077,7 @@
     (progn
         (start-can)
         (setup-enable-input)
+        (setup-brake-input)
         (setup-direction-input)
         (setup-cruise-inputs)
         (setup-heartbeat)
@@ -1015,6 +1087,7 @@
                      'mix *mix-mode*
                      'input *input-mode*
                      'direction *direction-mode*
+                     'brake *brake-mode*
                      'cruise *cruise-mode*
                      'heartbeat *heartbeat-enable*))
         (loopwhile t
@@ -1026,11 +1099,13 @@
                 (fresh *sample-input-ok*)
                 (direction-ok *sample-direction-ok*)
                 (enable-ok (enable-fresh))
+                (brake-ok (brake-fresh))
                 (cruise-ok (cruise-fresh))
                 (raw-throttle *sample-drive-throttle*)
                 (throttle 0.0)
                 (steer (if fresh *sample-steer* 0.0))
                 (enabled (read-enable))
+                (brake-active nil)
                 (status-ok (motors-fresh))
                 (temp-ok (thermal-ok))
                 (fault-now nil)
@@ -1039,29 +1114,39 @@
                 (progn
                     (update-direction-lock)
                     (setq fault-now
-                        (current-fault-reason fresh direction-ok enable-ok cruise-ok status-ok temp-ok))
+                        (current-fault-reason fresh direction-ok enable-ok cruise-ok brake-ok status-ok temp-ok))
                     (clear-fault-if-safe enabled *sample-throttle* steer fault-now)
                     (if fault-now (latch-fault fault-now) nil)
+                    (setq brake-active (and brake-ok (read-brake)))
                     (setq safe
                         (and
-                            fresh direction-ok enable-ok cruise-ok enabled status-ok temp-ok
+                            fresh direction-ok enable-ok cruise-ok brake-ok enabled status-ok temp-ok
                             (not *direction-lock*)
                             (not *fault-latched*)))
-                    (setq throttle (update-cruise safe raw-throttle))
-                    (setq armed-now (and safe (update-arm enabled throttle steer)))
-                    (if armed-now
+                    (if brake-active
                         (progn
-                            (calc-mix throttle steer)
-                            (setq *left-command* (slew *left-command* *mix-left* *loop-period-sec*))
-                            (setq *right-command* (slew *right-command* *mix-right* *loop-period-sec*))
-                            (send-all *left-command* *right-command*)
-                            (maybe-log 'drive throttle steer *left-command* *right-command*))
-                        (progn
-                            (if (not safe) (disarm) nil)
+                            (disarm)
+                            (setq *cruise-active* nil)
                             (setq *left-command* 0.0)
                             (setq *right-command* 0.0)
-                            (send-stop)
-                            (maybe-log 'stop throttle steer 0.0 0.0)))
+                            (send-operator-brake)
+                            (maybe-log 'brake raw-throttle steer 0.0 0.0))
+                        (progn
+                            (setq throttle (update-cruise safe raw-throttle))
+                            (setq armed-now (and safe (update-arm enabled throttle steer)))
+                            (if armed-now
+                                (progn
+                                    (calc-mix throttle steer)
+                                    (setq *left-command* (slew *left-command* *mix-left* *loop-period-sec*))
+                                    (setq *right-command* (slew *right-command* *mix-right* *loop-period-sec*))
+                                    (send-all *left-command* *right-command*)
+                                    (maybe-log 'drive throttle steer *left-command* *right-command*))
+                                (progn
+                                    (if (not safe) (disarm) nil)
+                                    (setq *left-command* 0.0)
+                                    (setq *right-command* 0.0)
+                                    (send-stop)
+                                    (maybe-log 'stop throttle steer 0.0 0.0)))))
                     (check-loop-overrun)
                     (update-heartbeat)
                     (sleep *loop-period-sec*))))))
@@ -1073,6 +1158,7 @@
                      'input *input-mode*
                      'direction *direction-mode*
                      'enable *enable-mode*
+                     'brake *brake-mode*
                      'cruise *cruise-mode*
                      'cancel *cruise-cancel-mode*
                      'heartbeat *heartbeat-enable*))

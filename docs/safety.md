@@ -17,6 +17,7 @@ The script can:
 - Stop when optional temperature checks report too hot.
 - Stop if the script loop takes too long.
 - Stop when a direction switch changes while moving.
+- Cancel cruise and command regenerative braking when the optional brake input is active.
 - Turn an optional heartbeat output off during a script fault.
 
 These are useful checks, but they do not replace a real E-stop.
@@ -56,6 +57,31 @@ Settings:
 
 In `same-power` mode, only throttle must be neutral. In `skid-steer` mode, throttle and steering must be neutral.
 
+## Optional Brake Input
+
+The brake input is off unless you enable it:
+
+```lisp
+(def *brake-mode* 'off)
+```
+
+When enabled and active, the brake input:
+
+1. Cancels cruise.
+2. Disarms drive output.
+3. Sends `*brake-command*` to active driven motors.
+4. Requires neutral controls before drive can return after brake release.
+
+For first tests, use a low brake command:
+
+```lisp
+(def *brake-command* 0.03)
+```
+
+The brake input is not a replacement for a hardware E-stop or mechanical brake.
+
+Regenerative braking depends on the motor VESC configuration, battery state, and system wiring. Test it on blocks before relying on it for vehicle behavior.
+
 ## Direction Change Lock
 
 If you use a separate forward/reverse switch, the script blocks direction changes while moving.
@@ -92,6 +118,7 @@ Common faults:
 | `direction-stale` | CAN direction input is too old. |
 | `enable-stale` | CAN enable input is too old. |
 | `cruise-stale` | CAN cruise input is too old. |
+| `brake-stale` | CAN brake input is too old. |
 | `motor-stale` | Optional motor status monitoring is enabled but status is missing. |
 | `thermal` | Optional temperature monitoring saw a hot motor or VESC. |
 | `loop-overrun` | One script loop took too long. |
@@ -140,6 +167,7 @@ If you enable cruise on a large machine:
 
 - Prefer `hold` mode over `toggle` mode.
 - Add a dedicated cancel button.
+- Add and test the brake input if your controls include one.
 - Keep throttle takeover cancellation enabled.
 - Test every cancel method on blocks.
 
@@ -150,6 +178,7 @@ Before anyone drives or stands near the machine, test:
 - Enable switch disables motion.
 - Hardware E-stop disables motion.
 - Throttle out-of-range stops motion.
+- Brake input cancels drive and cruise if brake input is used.
 - CAN disconnect stops motion if using CAN input.
 - Direction change while moving stops motion.
 - Watchdog test stops motion.

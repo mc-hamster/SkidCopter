@@ -172,14 +172,35 @@ When the script is not allowed to drive, it sends a stop or brake command to act
 ```lisp
 (def *neutral-brake-command* 0.00)
 (def *disable-brake-command* 0.08)
+(def *brake-command* 0.12)
 ```
 
 Plain meaning:
 
 - `neutral-brake`: what to do when the control is centered.
 - `disable-brake`: what to do when disabled, faulted, stale, or not armed.
+- `brake-command`: what to send when the optional brake input is active.
 
 For first tests, keep these low.
+
+Use `current-rel` or `current` mode if you want brake commands to use regenerative braking. In `duty` or `rpm` mode, the script sends zero drive instead of a brake-current command.
+
+## Optional Brake Input
+
+The brake input is disabled unless you turn it on:
+
+```lisp
+(def *brake-mode* 'off)
+```
+
+If enabled, an active brake input:
+
+- Cancels cruise control.
+- Disarms drive output.
+- Sends `*brake-command*` to active driven motors.
+- Requires neutral controls before drive can return after brake release.
+
+Supported brake modes are `'off`, `'local-gpio`, `'local-adc`, and `'can-adc`.
 
 ## Cruise Control
 
@@ -194,6 +215,7 @@ Cruise holds the current drive command. It is not true vehicle speed control unl
 Cruise cancels when:
 
 - The enable input turns off.
+- The brake input is active.
 - A fault happens.
 - The throttle moves enough to take over.
 - A cancel button is pressed, if configured.
@@ -214,6 +236,7 @@ Common reasons:
 | Fault | Meaning |
 |---|---|
 | `input` | A required input is out of range or stale. |
+| `brake-stale` | CAN brake input is too old when CAN brake is enabled. |
 | `motor-stale` | Motor status messages are missing when monitoring is enabled. |
 | `thermal` | A monitored motor or VESC is too hot. |
 | `loop-overrun` | One script loop took too long. |

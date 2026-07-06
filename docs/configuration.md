@@ -197,6 +197,35 @@ The script still requires neutral controls before it arms:
 (def *arm-neutral-sec* 0.75)
 ```
 
+## Optional Brake Input
+
+The brake input is off unless you enable it:
+
+```lisp
+(def *brake-mode* 'off)
+```
+
+Options:
+
+- `'off`: no brake input is read or configured.
+- `'local-gpio`: brake switch wired to the VESC Express.
+- `'local-adc`: brake threshold input wired to the VESC Express.
+- `'can-adc`: brake threshold input from the CAN input VESC.
+
+For a simple active-low brake switch:
+
+```lisp
+(def *brake-mode* 'local-gpio)
+(def *brake-gpio-pin* 6)
+(def *brake-gpio-mode* 'pin-mode-in-pu)
+(def *brake-active-high* nil)
+(def *brake-command* 0.12)
+```
+
+When the brake input is active, the script cancels cruise, disarms drive output, and sends the brake command to the active driven motors. When the brake is released, controls must return to neutral before the script can arm again.
+
+For first tests, keep `*brake-command*` low. Use `current-rel` or `current` mode if you want this input to command regenerative braking.
+
 ## Direction Selector
 
 Most centered throttle controls do not need a direction switch. The throttle axis itself chooses forward or reverse:
@@ -234,6 +263,7 @@ If you enable it, start with hold-to-run behavior:
 Cruise cancels when:
 
 - The enable input turns off.
+- The brake input is active.
 - A fault happens.
 - CAN input becomes stale.
 - The throttle moves enough to take over.

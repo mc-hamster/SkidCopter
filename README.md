@@ -61,6 +61,35 @@ For a real machine, use an enable switch instead of leaving enable mode at `'alw
 
 The enable switch is still not a hardware E-stop. It is only an input to the script.
 
+## Optional Brake Input
+
+The dedicated brake input is optional and off by default:
+
+```lisp
+(def *brake-mode* 'off)
+```
+
+If you enable it, pressing the brake input:
+
+- Cancels cruise control.
+- Disarms drive output.
+- Sends the configured regenerative brake command to active driven motors.
+- Requires neutral controls before drive power can return after brake release.
+
+Typical GPIO brake switch setup:
+
+```lisp
+(def *brake-mode* 'local-gpio)
+(def *brake-gpio-pin* 6)
+(def *brake-gpio-mode* 'pin-mode-in-pu)
+(def *brake-active-high* nil)
+(def *brake-command* 0.12)
+```
+
+`*brake-command*` uses the same units as the other brake commands: relative current in `current-rel` mode and amps in `current` mode. Keep it low for first tests. Use `current-rel` or `current` mode if you want the brake input to command regenerative braking.
+
+Regenerative braking depends on the motor VESC configuration, battery state, and system wiring. It is not a mechanical brake or a replacement for an E-stop.
+
 ## Main Choices
 
 You only need to make a few big choices before editing the script.
@@ -121,7 +150,7 @@ Other modes are available, but start with `current-rel` unless you have a clear 
 
 ## Basic Setup Flow
 
-1. Wire the VESC Express, CAN transceiver, driven VESC motor controllers, controls, and enable switch. See [docs/wiring-esp32-s3.md](docs/wiring-esp32-s3.md).
+1. Wire the VESC Express, CAN transceiver, driven VESC motor controllers, controls, enable switch, and optional brake input. See [docs/wiring-esp32-s3.md](docs/wiring-esp32-s3.md).
 2. Configure each motor VESC by itself in VESC Tool first. Set current limits, voltage limits, temperature limits, CAN ID, and CAN baud rate.
 3. Edit the top settings in [src/skid-steer.lisp](src/skid-steer.lisp).
 4. Run:

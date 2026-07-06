@@ -207,6 +207,39 @@ With this wiring:
 - Closed switch to ground means enabled.
 - The script still waits for neutral controls before driving.
 
+## Optional Brake Switch
+
+The brake input is not used unless enabled in the script:
+
+```lisp
+(def *brake-mode* 'off)
+```
+
+For a simple brake switch, wire the switch to ground:
+
+```text
+ESP32-S3 GPIO6 ---- brake switch ---- GND
+```
+
+Script settings:
+
+```lisp
+(def *brake-mode* 'local-gpio)
+(def *brake-gpio-pin* 6)
+(def *brake-gpio-mode* 'pin-mode-in-pu)
+(def *brake-active-high* nil)
+(def *brake-command* 0.12)
+```
+
+With this wiring:
+
+- Open switch means brake not active.
+- Closed switch to ground means brake active.
+- Brake active cancels cruise and sends the configured brake command.
+- Releasing brake requires neutral controls before drive can return.
+
+Choose a brake GPIO that is not already used by CAN, ADC controls, enable, direction, cruise, boot pins, flash, or onboard hardware.
+
 ## Direction Switch
 
 You usually do not need a direction switch with a centered throttle. Use `throttle-axis` instead.
@@ -288,6 +321,7 @@ For `can-adc`:
 - Put that VESC on the same CAN bus.
 - Set `*input-can-id*` to that VESC's CAN ID.
 - Configure that VESC to broadcast status message 6.
+- If using CAN brake input, set `*brake-mode*` to `'can-adc` and set `*can-brake-adc-channel*`.
 
 For `can-ppm`:
 

@@ -46,6 +46,7 @@ Recommended normal settings:
 ```lisp
 (def *loop-period-sec* 0.02)
 (def *print-status* nil)
+(def *brake-mode* 'off)
 (def *require-motor-status* nil)
 (def *enable-thermal-stop* nil)
 ```
@@ -53,6 +54,7 @@ Recommended normal settings:
 Why:
 
 - Console printing can add timing jitter.
+- Brake input is skipped when `*brake-mode*` is `'off`.
 - Optional motor status checks add CAN reads.
 - Optional thermal checks add CAN reads.
 

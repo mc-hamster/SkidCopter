@@ -15,6 +15,7 @@ The goal of the bench test is to prove:
 - The motors turn the expected direction.
 - The script stops when inputs are bad.
 - The ramp settings are gentle enough.
+- Optional brake input cancels drive and cruise, if enabled.
 
 Do not skip this step.
 
@@ -40,6 +41,7 @@ In [src/skid-steer.lisp](../src/skid-steer.lisp), start low:
 (def *max-command* 0.03)
 (def *neutral-brake-command* 0.00)
 (def *disable-brake-command* 0.03)
+(def *brake-command* 0.03)
 (def *accel-rate-per-sec* 0.60)
 (def *decel-rate-per-sec* 0.60)
 (def *reverse-rate-per-sec* 0.35)
@@ -95,6 +97,7 @@ In VESC Tool:
 4. Watch for a console line starting with `skid-start`.
 
 The `skid-start` line shows the selected layout, mix mode, input mode, and cruise mode.
+It also shows the selected brake mode.
 
 ## 5. Check CAN Devices
 
@@ -211,7 +214,29 @@ Only do this if you configured a separate direction switch.
 
 Do not use the direction switch as a brake.
 
-## 11. Fault Test
+## 11. Optional Brake Input Test
+
+Only do this if you configured a brake input.
+
+Keep the wheels off the ground and keep `*brake-command*` low.
+
+1. Center all controls.
+2. Enable the script and wait for neutral arming.
+3. Apply a very small forward command.
+4. Press the brake input.
+5. Confirm drive power stops and the active driven wheels receive braking.
+6. Release the brake input while keeping controls neutral.
+7. Confirm the script waits for neutral arming before drive can return.
+
+If cruise is enabled, repeat the test with cruise active and confirm pressing brake cancels cruise.
+
+If braking is too strong, lower:
+
+```lisp
+(def *brake-command* 0.02)
+```
+
+## 12. Fault Test
 
 Test at least one fault before driving on the ground.
 
@@ -232,7 +257,7 @@ To clear:
 3. Disable the enable input.
 4. Re-enable and wait for neutral arming.
 
-## 12. Optional Heartbeat Test
+## 13. Optional Heartbeat Test
 
 Only do this if heartbeat GPIO is enabled.
 
@@ -242,7 +267,7 @@ Use a meter, scope, or external controller input to confirm:
 - The heartbeat goes low when a script fault is latched.
 - The heartbeat stops if the VESC Express loses power or the script stops.
 
-## 13. Cruise Test
+## 14. Cruise Test
 
 Skip this until normal driving works.
 
@@ -255,8 +280,9 @@ If cruise is enabled:
 5. Confirm cruise cancels from throttle movement.
 6. Confirm cruise cancels from the enable switch.
 7. Confirm cruise cancels from the cancel button, if fitted.
+8. Confirm cruise cancels from the brake input, if fitted.
 
-## 14. First Ground Test
+## 15. First Ground Test
 
 Only do this after all bench tests pass.
 
@@ -278,5 +304,6 @@ Only do this after all bench tests pass.
 | Stops every loop | ADC out of range or CAN input stale | ADC readings, `*adc-fault-margin-v*`, CAN status |
 | Steering is backwards | Steering axis is inverted | `*invert-steer*` |
 | Script never arms | Required controls are not neutral | Center voltages and deadbands |
+| Script stays in brake | Brake input is active or inverted | `*brake-mode*`, `*brake-active-high*`, brake switch wiring |
 | Thermal fault immediately | Status message 4 is not configured | Disable thermal check or configure status 4 |
 | Cruise will not latch | Not armed or command too small | `*cruise-min-command*`, request switch |
