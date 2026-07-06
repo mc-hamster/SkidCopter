@@ -1,4 +1,5 @@
 ; SkidCopter skid-steer controller for VESC Express on ESP32-S3.
+; SPDX-License-Identifier: GPL-3.0-only
 ;
 ; Upload this file to VESC Tool -> LispBM on the VESC Express. Edit the
 ; configuration block below before uploading.

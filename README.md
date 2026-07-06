@@ -26,6 +26,8 @@ It can run these common layouts:
 
 This script is not a replacement for real machine safety hardware. For a large or heavy machine, use a hardware E-stop, fuse or breaker, contactor or drive-enable circuit, and proper guards. The script can stop sending motor commands, but it cannot make an unsafe wiring or mechanical design safe.
 
+Use this software entirely at your own risk. Vehicles, robots, and motor systems can cause property damage, injury, or death if they are built, configured, tested, or operated incorrectly. The author and contributors are not responsible or liable for anything that happens from using, modifying, wiring, testing, or operating this software.
+
 Start with the wheels off the ground, low current limits, and a physical power disconnect within reach.
 
 ## Startup Safety
@@ -159,3 +161,9 @@ This catches unbalanced parentheses, unterminated strings, and non-ASCII charact
 - VESC Express source and ESP32-S3 CAN defaults: https://github.com/vedderb/vesc_express
 - VESC LispBM docs: https://github.com/vedderb/bldc/blob/master/lispBM/README.md
 - VESC package notes: https://github.com/vedderb/vesc_pkg
+
+## License
+
+This project is licensed under the GNU General Public License version 3. See [LICENSE](LICENSE).
+
+This software is provided without warranty. Use it at your own risk.

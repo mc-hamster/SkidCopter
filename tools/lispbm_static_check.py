@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
 """Lightweight checks for LispBM source files.
 
 This does not replace VESC Tool's LispBM parser. It catches common local edit
@@ -90,4 +91,3 @@ def main(argv: list[str]) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main(sys.argv))
-
