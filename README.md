@@ -90,6 +90,64 @@ Typical GPIO brake switch setup:
 
 Regenerative braking depends on the motor VESC configuration, battery state, and system wiring. It is not a mechanical brake or a replacement for an E-stop.
 
+## Default ESP32-S3-DevKitC-1 Pin Assignments
+
+These defaults assume an ESP32-S3-DevKitC-1 running VESC Express firmware, plus a separate 3.3 V logic CAN transceiver. GPIO numbers below are the ESP32-S3 GPIO labels on the DevKitC headers.
+
+The assignments intentionally avoid ESP32-S3 strapping pins, native USB pins, UART0 console pins, JTAG pins, flash/PSRAM pins, and the onboard RGB LED pin.
+
+| Use | Script setting | ESP32-S3 pin | Default status | Why this pin was chosen |
+|---|---|---:|---|---|
+| Throttle analog input | `*throttle-adc-channel* 0` | GPIO1 / ADC1_CH0 | Active with `*input-mode* 'local-adc` | First ADC1 channel, no DevKitC boot, USB, UART0, JTAG, flash, or LED conflict. |
+| Steering analog input | `*steer-adc-channel* 1` | GPIO2 / ADC1_CH1 | Active with `*input-mode* 'local-adc` | Second ADC1 channel, adjacent to GPIO1, and similarly free of common board conflicts. |
+| CAN transmit | `*can-tx-pin* 16` | GPIO16 | Active | DevKitC/VESC Express S3 CAN default, exposed on J1, not a strapping or debug pin. Connect to CAN transceiver TXD. |
+| CAN receive | `*can-rx-pin* 17` | GPIO17 | Active | Adjacent to GPIO16 on J1 and used with the same VESC Express S3 CAN default. Connect to CAN transceiver RXD. |
+| Optional brake switch | `*brake-gpio-pin* 6` | GPIO6 | Unused until `*brake-mode*` is `'local-gpio` | Safe low-speed input with internal pull-up support, grouped with other switch inputs on J1. |
+| Optional cruise cancel | `*cruise-cancel-gpio-pin* 7` | GPIO7 | Unused until `*cruise-cancel-mode*` is `'local-gpio` | Safe low-speed input next to the brake input, useful for active-low buttons to ground. |
+| Optional cruise request | `*cruise-gpio-pin* 8` | GPIO8 | Unused until `*cruise-mode*` is `'local-gpio` | Safe low-speed input, grouped with the other operator switches. |
+| Optional direction switch | `*direction-gpio-pin* 9` | GPIO9 | Unused while `*direction-mode*` is `'throttle-axis` | Safe active-low switch input for builds with a one-direction throttle pedal. |
+| Optional enable switch | `*enable-gpio-pin* 10` | GPIO10 | Unused while `*enable-mode*` is `'always` | Safe active-low switch input with pull-up support, kept near the other operator switches. |
+| Optional heartbeat output | `*heartbeat-gpio-pin* 15` | GPIO15 | Unused until `*heartbeat-enable*` is `t` | Clear spare output on J1, away from boot, USB, UART0, JTAG, flash, and LED conflicts. |
+
+Wire switch inputs as active-low by default:
+
+```text
+ESP32-S3 GPIO ---- switch or button ---- GND
+```
+
+Leave `3.3 V`, `GND`, `5 V`, and `RST/EN` for power and reset only. ESP32-S3 GPIOs are not 5 V tolerant.
+
+Unassigned DevKitC header pins:
+
+| ESP32-S3 pin | Capability | Default guidance |
+|---:|---|---|
+| GPIO0 | Digital I/O, RTC GPIO, boot strapping pin | Leave unassigned. The DevKitC BOOT button and download mode depend on this pin. |
+| GPIO3 | Digital I/O, RTC GPIO, TOUCH3, ADC1_CH2, strapping pin | Leave unassigned by default. It can read analog voltage, but boot strapping makes it easy to create startup problems. |
+| GPIO4 | Digital I/O, RTC GPIO, TOUCH4, ADC1_CH3 | Good spare analog or digital input if you need one more local ADC selector. |
+| GPIO5 | Digital I/O, RTC GPIO, TOUCH5, ADC1_CH4 | Good spare analog or digital input if you need one more local ADC selector. |
+| GPIO11 | Digital I/O, RTC GPIO, TOUCH11, ADC2_CH0, FSPI alternate functions | Usable as spare low-speed GPIO if you are not adding external SPI/FSPI devices on those header pins. |
+| GPIO12 | Digital I/O, RTC GPIO, TOUCH12, ADC2_CH1, FSPI alternate functions | Usable as spare low-speed GPIO if not used for external SPI/FSPI. |
+| GPIO13 | Digital I/O, RTC GPIO, TOUCH13, ADC2_CH2, FSPI alternate functions | Usable as spare low-speed GPIO if not used for external SPI/FSPI. |
+| GPIO14 | Digital I/O, RTC GPIO, TOUCH14, ADC2_CH3, FSPI alternate functions | Usable as spare low-speed GPIO if not used for external SPI/FSPI. |
+| GPIO18 | Digital I/O, RTC GPIO, ADC2_CH7, UART1 RX alternate function | Good spare digital I/O or UART pin when not needed by another peripheral. |
+| GPIO19 | Digital I/O, RTC GPIO, ADC2_CH8, USB_D- | Leave unassigned if using the native USB port or USB Serial/JTAG. |
+| GPIO20 | Digital I/O, RTC GPIO, ADC2_CH9, USB_D+ | Leave unassigned if using the native USB port or USB Serial/JTAG. |
+| GPIO21 | Digital I/O, RTC GPIO | Good clean spare GPIO for simple inputs or outputs. |
+| GPIO35 | Digital I/O, SPI flash/PSRAM function on some modules | Avoid for portable DevKitC wiring; unavailable on some Octal flash/PSRAM variants. |
+| GPIO36 | Digital I/O, SPI flash/PSRAM function on some modules | Avoid for portable DevKitC wiring; unavailable on some Octal flash/PSRAM variants. |
+| GPIO37 | Digital I/O, SPI flash/PSRAM function on some modules | Avoid for portable DevKitC wiring; unavailable on some Octal flash/PSRAM variants. |
+| GPIO38 | Digital I/O, onboard RGB LED on DevKitC-1 v1.1 | Leave for the onboard RGB LED unless you intentionally remove that use. |
+| GPIO39 | Digital I/O, JTAG MTCK | Avoid unless JTAG is disabled and you do not need hardware debugging. |
+| GPIO40 | Digital I/O, JTAG MTDO | Avoid unless JTAG is disabled and you do not need hardware debugging. |
+| GPIO41 | Digital I/O, JTAG MTDI | Avoid unless JTAG is disabled and you do not need hardware debugging. |
+| GPIO42 | Digital I/O, JTAG MTMS | Avoid unless JTAG is disabled and you do not need hardware debugging. |
+| GPIO43 | Digital I/O, UART0 TX | Leave for serial console/programming unless you intentionally move the console. |
+| GPIO44 | Digital I/O, UART0 RX | Leave for serial console/programming unless you intentionally move the console. |
+| GPIO45 | Digital I/O, strapping pin | Leave unassigned. Wrong startup level can affect boot configuration. |
+| GPIO46 | Digital I/O, strapping pin | Leave unassigned. Wrong startup level can affect boot/download behavior. |
+| GPIO47 | Digital I/O, SPI clock alternate function | Usable spare GPIO after checking your exact DevKitC variant and attached peripherals. |
+| GPIO48 | Digital I/O, onboard RGB LED on initial DevKitC-1 revisions | Avoid unless you have verified your board revision and are not using the onboard RGB LED. |
+
 ## Main Choices
 
 You only need to make a few big choices before editing the script.
@@ -190,6 +248,8 @@ This catches unbalanced parentheses, unterminated strings, and non-ASCII charact
 - VESC Express source and ESP32-S3 CAN defaults: https://github.com/vedderb/vesc_express
 - VESC LispBM docs: https://github.com/vedderb/bldc/blob/master/lispBM/README.md
 - VESC package notes: https://github.com/vedderb/vesc_pkg
+- ESP32-S3-DevKitC-1 user guide and header pinout: https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32s3/esp32-s3-devkitc-1/
+- ESP32-S3 GPIO restrictions and functions: https://docs.espressif.com/projects/esp-idf/en/stable/esp32s3/api-reference/peripherals/gpio.html
 
 ## License
 

@@ -153,7 +153,7 @@ Settings:
 
 ```lisp
 (def *heartbeat-enable* nil)
-(def *heartbeat-gpio-pin* -1)
+(def *heartbeat-gpio-pin* 15)
 (def *heartbeat-period-sec* 0.50)
 ```
 

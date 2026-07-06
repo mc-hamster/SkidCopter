@@ -10,11 +10,10 @@
 
 (def *vehicle-name* "SkidCopter")
 
-; Standard VESC Express ESP32-S3 builds use CAN TX GPIO16 and CAN RX GPIO17.
-; Leave both at -1 to use the firmware defaults. Set both to GPIO numbers to
-; override them with (can-start tx rx).
-(def *can-tx-pin* -1)
-(def *can-rx-pin* -1)
+; ESP32-S3-DevKitC-1 default CAN transceiver pins.
+; CAN TX goes to the transceiver TXD pin; CAN RX goes to transceiver RXD.
+(def *can-tx-pin* 16)
+(def *can-rx-pin* 17)
 
 ; Motor controller CAN IDs. Configure the driven motor VESCs to match these IDs.
 (def *left-front-id* 11)
@@ -62,7 +61,9 @@
 (def *direction-mode* 'throttle-axis)
 
 ; Local ADC channels. On common ESP32-S3 VESC Express firmware these are
-; ADC1_CH0..ADC1_CH4, normally GPIO1..GPIO5. Verify your board pinout.
+; ADC1_CH0..ADC1_CH4, normally GPIO1..GPIO5. GPIO3/ADC1_CH2 is a strapping
+; pin on ESP32-S3-DevKitC-1, so leave channel 2 unused unless you understand
+; the boot constraints.
 (def *throttle-adc-channel* 0)
 (def *steer-adc-channel* 1)
 
@@ -119,7 +120,7 @@
 (def *enable-gpio-mode* 'pin-mode-in-pu)
 (def *enable-active-high* nil)
 
-(def *enable-adc-channel* 2)
+(def *enable-adc-channel* 4)
 (def *enable-adc-threshold-v* 1.50)
 (def *enable-adc-active-high* t)
 (def *can-enable-adc-channel* 2)
@@ -253,7 +254,7 @@
 ; Optional heartbeat output for an external safety relay or safety controller.
 ; Leave disabled unless the GPIO is wired and monitored externally.
 (def *heartbeat-enable* nil)
-(def *heartbeat-gpio-pin* -1)
+(def *heartbeat-gpio-pin* 15)
 (def *heartbeat-period-sec* 0.50)
 
 ; Keep status printing off for lowest jitter. Enable during bench tuning if you

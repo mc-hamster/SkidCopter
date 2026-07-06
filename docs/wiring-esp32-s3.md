@@ -37,7 +37,7 @@ Use a 3.3 V logic CAN transceiver such as:
 - TJA1051 with 3.3 V IO.
 - MCP2562 with VIO tied to 3.3 V.
 
-Default VESC Express ESP32-S3 CAN pins:
+Default ESP32-S3-DevKitC-1 CAN pins:
 
 | ESP32-S3 pin | Connect to |
 |---|---|
@@ -124,11 +124,11 @@ Common ADC mapping:
 |---:|---:|
 | `0` | GPIO1 |
 | `1` | GPIO2 |
-| `2` | GPIO3 |
+| `2` | GPIO3, strapping pin, avoid by default |
 | `3` | GPIO4 |
 | `4` | GPIO5 |
 
-Check your exact board pinout before wiring.
+Check your exact board pinout before wiring. The default SkidCopter assignments use ADC channels `0` and `1` for throttle and steering, and leave ADC channel `2` unused because GPIO3 is sampled during boot.
 
 ## Two-Axis Skid-Steer Controls
 

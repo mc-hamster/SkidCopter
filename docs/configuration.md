@@ -300,16 +300,16 @@ Printing is useful while testing, but it can add timing jitter.
 
 ## CAN Pins
 
-For standard ESP32-S3 VESC Express firmware, leave these at `-1`:
+For the ESP32-S3-DevKitC-1 default wiring, use:
 
 ```lisp
-(def *can-tx-pin* -1)
-(def *can-rx-pin* -1)
+(def *can-tx-pin* 16)
+(def *can-rx-pin* 17)
 ```
 
-The default pins are:
+Wire these to a 3.3 V logic CAN transceiver:
 
-- CAN TX: GPIO16.
-- CAN RX: GPIO17.
+- CAN TX GPIO16 to transceiver TXD.
+- CAN RX GPIO17 to transceiver RXD.
 
 Only change these if your hardware or firmware uses different CAN pins.
