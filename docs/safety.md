@@ -19,6 +19,7 @@ The script can:
 - Stop when a direction switch changes while moving.
 - Cancel cruise and command regenerative braking when the optional brake input is active.
 - Turn an optional heartbeat output off during a script fault.
+- Drive optional dash status LEDs for ready, inhibited, brake, and fault states.
 
 These are useful checks, but they do not replace a real E-stop.
 
@@ -158,6 +159,20 @@ Settings:
 ```
 
 Use heartbeat only as an input to another safety device or supervisory controller. Do not drive a contactor coil directly from the ESP32-S3 GPIO.
+
+## Dash Status LEDs
+
+The optional dash LEDs are operator indicators, not safety-rated outputs.
+
+Recommended colors:
+
+| LED | Color | Meaning |
+|---|---|---|
+| Ready | Green | Solid means drive is armed. Flashing means enable is on and checks are OK, but neutral arming is still in progress. |
+| Inhibit | Amber | Solid means enable is off. Flashing means drive is inhibited by a non-fault software state such as direction-change lock. |
+| Fault / brake | Red | Solid means brake input is active. Flashing means a script fault is latched. |
+
+Do not assume the machine is safe because a dash LED is off. The hardware E-stop, disconnect, brake, and contactor or drive-enable chain must still be able to stop motion without the ESP32-S3.
 
 ## Cruise Warning
 

@@ -311,6 +311,43 @@ Example:
 
 Choose a GPIO that is not already used by CAN, ADC, enable, direction, cruise, boot pins, flash, or onboard hardware.
 
+## Dash Status LEDs
+
+Use three separate dash LEDs for glanceable operator status:
+
+| LED | GPIO | Recommended color | Off | On | Flashing |
+|---|---:|---|---|---|---|
+| Ready | GPIO11 | Green | Drive is not ready, or red has priority. | Drive is armed and command output is allowed. | Enable is on and checks are OK, but controls must stay neutral until arming completes. |
+| Inhibit | GPIO12 | Amber | No operator-attention inhibit is active. | Enable input is off. | Enable is on, but drive is inhibited by a non-fault state such as direction-change lock. |
+| Fault / brake | GPIO13 | Red | No brake input or latched script fault is active. | Brake input is active. | Script fault is latched. |
+
+These GPIO11-GPIO13 assignments assume you are not adding an external FSPI/SPI device on those header pins.
+
+Script settings:
+
+```lisp
+(def *status-led-enable* t)
+(def *status-ready-led-pin* 11)
+(def *status-inhibit-led-pin* 12)
+(def *status-fault-led-pin* 13)
+(def *status-led-active-high* t)
+(def *status-led-flash-period-sec* 0.50)
+```
+
+For active-high LEDs, wire each GPIO through a current-limiting resistor to the LED, then to ground:
+
+```text
+ESP32-S3 GPIO ---- resistor ---- LED ---- GND
+```
+
+For active-low wiring, wire the LED and resistor to `3.3 V`, let the GPIO sink current, and set:
+
+```lisp
+(def *status-led-active-high* nil)
+```
+
+Use only low-current 3.3 V LEDs directly from ESP32-S3 GPIOs. For 12 V dash lamps, long harnesses, or high-current indicators, use a transistor, MOSFET, optocoupler, or LED driver between the ESP32-S3 and the dash wiring.
+
 ## CAN-Based Inputs
 
 The simplest setup is local ADC. Use CAN-based inputs only if you have a reason to put the controls on another VESC.

@@ -107,6 +107,9 @@ The assignments intentionally avoid ESP32-S3 strapping pins, native USB pins, UA
 | Optional cruise request | `*cruise-gpio-pin* 8` | GPIO8 | Unused until `*cruise-mode*` is `'local-gpio` | Safe low-speed input, grouped with the other operator switches. |
 | Optional direction switch | `*direction-gpio-pin* 9` | GPIO9 | Unused while `*direction-mode*` is `'throttle-axis` | Safe active-low switch input for builds with a one-direction throttle pedal. |
 | Optional enable switch | `*enable-gpio-pin* 10` | GPIO10 | Unused while `*enable-mode*` is `'always` | Safe active-low switch input with pull-up support, kept near the other operator switches. |
+| Dash ready LED, green | `*status-ready-led-pin* 11` | GPIO11 | Unused until `*status-led-enable*` is `t` | Contiguous spare low-speed output for the dash LED that shows drive ready or waiting-to-arm state. Do not share with external FSPI/SPI devices. |
+| Dash inhibit LED, amber | `*status-inhibit-led-pin* 12` | GPIO12 | Unused until `*status-led-enable*` is `t` | Contiguous spare low-speed output for disabled or operator-attention states. Do not share with external FSPI/SPI devices. |
+| Dash fault LED, red | `*status-fault-led-pin* 13` | GPIO13 | Unused until `*status-led-enable*` is `t` | Contiguous spare low-speed output for brake-active and latched-fault states. Do not share with external FSPI/SPI devices. |
 | Optional heartbeat output | `*heartbeat-gpio-pin* 15` | GPIO15 | Unused until `*heartbeat-enable*` is `t` | Clear spare output on J1, away from boot, USB, UART0, JTAG, flash, and LED conflicts. |
 
 Wire switch inputs as active-low by default:
@@ -114,6 +117,16 @@ Wire switch inputs as active-low by default:
 ```text
 ESP32-S3 GPIO ---- switch or button ---- GND
 ```
+
+Recommended dash LED colors and meanings:
+
+| LED | Recommended color | Off | On | Flashing |
+|---|---|---|---|---|
+| Ready | Green | Drive is not ready, or another LED has priority. | Drive is armed and commands can be sent. | Enable is on and checks are OK, but the script is waiting for neutral arming. |
+| Inhibit | Amber | No operator-attention inhibit is active. | Enable input is off. | Enable is on, but drive is inhibited by a non-fault state such as direction-change lock. |
+| Fault / brake | Red | No brake input or latched script fault is active. | Brake input is active. | Script fault is latched; fix the cause, center controls, and cycle enable to clear. |
+
+Red has priority over the other dash LEDs. If a fault is latched, the ready and inhibit LEDs stay off and the red LED flashes.
 
 Leave `3.3 V`, `GND`, `5 V`, and `RST/EN` for power and reset only. ESP32-S3 GPIOs are not 5 V tolerant.
 
@@ -125,9 +138,6 @@ Unassigned DevKitC header pins:
 | GPIO3 | Digital I/O, RTC GPIO, TOUCH3, ADC1_CH2, strapping pin | Leave unassigned by default. It can read analog voltage, but boot strapping makes it easy to create startup problems. |
 | GPIO4 | Digital I/O, RTC GPIO, TOUCH4, ADC1_CH3 | Good spare analog or digital input if you need one more local ADC selector. |
 | GPIO5 | Digital I/O, RTC GPIO, TOUCH5, ADC1_CH4 | Good spare analog or digital input if you need one more local ADC selector. |
-| GPIO11 | Digital I/O, RTC GPIO, TOUCH11, ADC2_CH0, FSPI alternate functions | Usable as spare low-speed GPIO if you are not adding external SPI/FSPI devices on those header pins. |
-| GPIO12 | Digital I/O, RTC GPIO, TOUCH12, ADC2_CH1, FSPI alternate functions | Usable as spare low-speed GPIO if not used for external SPI/FSPI. |
-| GPIO13 | Digital I/O, RTC GPIO, TOUCH13, ADC2_CH2, FSPI alternate functions | Usable as spare low-speed GPIO if not used for external SPI/FSPI. |
 | GPIO14 | Digital I/O, RTC GPIO, TOUCH14, ADC2_CH3, FSPI alternate functions | Usable as spare low-speed GPIO if not used for external SPI/FSPI. |
 | GPIO18 | Digital I/O, RTC GPIO, ADC2_CH7, UART1 RX alternate function | Good spare digital I/O or UART pin when not needed by another peripheral. |
 | GPIO19 | Digital I/O, RTC GPIO, ADC2_CH8, USB_D- | Leave unassigned if using the native USB port or USB Serial/JTAG. |
@@ -205,6 +215,27 @@ Other modes are available, but start with `current-rel` unless you have a clear 
 - [docs/performance.md](docs/performance.md): loop rate and CAN traffic notes.
 - [docs/glossary.md](docs/glossary.md): short definitions for terms used in the docs.
 - [tools/lispbm_static_check.py](tools/lispbm_static_check.py): local syntax sanity checker.
+- [simulator](simulator): browser-based vehicle simulator for software-side control, motion, CAN output, and telemetry checks.
+
+## Browser Simulator
+
+The `simulator/` app runs a local browser-based digital twin. It shows the vehicle on a 3D test pad, lets you tune vehicle dimensions and physics values in American units, and displays simulated CAN output and telemetry.
+
+The simulator is useful for software development and scenario testing, but it does not replace VESC Tool checks, wheels-off-ground bench testing, or hardware safety validation. The control logic is loaded from `src/skid-steer.lisp` directly in the browser; the simulator stubs the VESC LispBM hardware functions such as ADC, GPIO, CAN input, CAN output, and timing.
+
+To start it:
+
+```sh
+cd simulator
+npm install
+npm run dev -- --port 5173
+```
+
+Then open:
+
+```text
+http://127.0.0.1:5173/
+```
 
 ## Basic Setup Flow
 

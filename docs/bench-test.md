@@ -257,7 +257,23 @@ To clear:
 3. Disable the enable input.
 4. Re-enable and wait for neutral arming.
 
-## 13. Optional Heartbeat Test
+## 13. Optional Dash LED Test
+
+Only do this if dash status LEDs are enabled and wired.
+
+Keep the vehicle on blocks.
+
+Expected states:
+
+- Enable off, if an enable input is fitted: amber on, green off, red off.
+- Enable on with neutral controls before arming completes: green flashing.
+- Armed and ready: green on, amber off, red off.
+- Brake input active, if fitted: red on, green off, amber off.
+- Latched script fault: red flashing, green off, amber off.
+
+If a direction switch is fitted, change direction while the wheels are still commanded and confirm amber flashes until controls return to neutral and the direction lock clears.
+
+## 14. Optional Heartbeat Test
 
 Only do this if heartbeat GPIO is enabled.
 
@@ -267,7 +283,7 @@ Use a meter, scope, or external controller input to confirm:
 - The heartbeat goes low when a script fault is latched.
 - The heartbeat stops if the VESC Express loses power or the script stops.
 
-## 14. Cruise Test
+## 15. Cruise Test
 
 Skip this until normal driving works.
 
@@ -282,7 +298,7 @@ If cruise is enabled:
 7. Confirm cruise cancels from the cancel button, if fitted.
 8. Confirm cruise cancels from the brake input, if fitted.
 
-## 15. First Ground Test
+## 16. First Ground Test
 
 Only do this after all bench tests pass.
 

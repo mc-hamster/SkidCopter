@@ -257,6 +257,16 @@
 (def *heartbeat-gpio-pin* 15)
 (def *heartbeat-period-sec* 0.50)
 
+; Optional dash status LEDs. Recommended colors are green on the ready LED,
+; amber on the inhibit LED, and red on the fault LED. The default pins are
+; spare low-speed GPIOs on the ESP32-S3-DevKitC-1 header.
+(def *status-led-enable* nil)
+(def *status-ready-led-pin* 11)
+(def *status-inhibit-led-pin* 12)
+(def *status-fault-led-pin* 13)
+(def *status-led-active-high* t)
+(def *status-led-flash-period-sec* 0.50)
+
 ; Keep status printing off for lowest jitter. Enable during bench tuning if you
 ; want one Lisp console status line per *status-print-period-sec*.
 (def *print-status* nil)
@@ -281,6 +291,8 @@
 (def *loop-start* (systime))
 (def *heartbeat-state* 0)
 (def *last-heartbeat* (systime))
+(def *status-led-flash-state* 0)
+(def *last-status-led-flash* (systime))
 
 ; Hot-loop scratch state. Keeping these as globals avoids avoidable consing and
 ; duplicate extension calls in the 50 Hz control loop.
@@ -921,6 +933,56 @@
                 nil))
         nil))
 
+(defun status-led-level (on)
+    (if *status-led-active-high*
+        (if on 1 0)
+        (if on 0 1)))
+
+(defun update-status-led-flash ()
+    (if (> (secs-since *last-status-led-flash*) *status-led-flash-period-sec*)
+        (progn
+            (setq *status-led-flash-state* (if (= *status-led-flash-state* 0) 1 0))
+            (setq *last-status-led-flash* (systime)))
+        nil))
+
+(defun write-status-led (pin mode)
+    (if (eq mode 'on)
+        (gpio-write pin (status-led-level t))
+        (if (eq mode 'flash)
+            (gpio-write pin (status-led-level (= *status-led-flash-state* 1)))
+            (gpio-write pin (status-led-level nil)))))
+
+(defun update-status-leds (enabled safe brake-active)
+    (if *status-led-enable*
+        (let (
+            (ready-mode 'off)
+            (inhibit-mode 'off)
+            (fault-mode 'off))
+            (progn
+                (update-status-led-flash)
+                (if *fault-latched*
+                    (setq fault-mode 'flash)
+                    (if brake-active
+                        (setq fault-mode 'on)
+                        nil))
+                (if (or *fault-latched* brake-active)
+                    nil
+                    (progn
+                        (if *armed*
+                            (setq ready-mode 'on)
+                            (if (and enabled safe)
+                                (setq ready-mode 'flash)
+                                nil))
+                        (if (not enabled)
+                            (setq inhibit-mode 'on)
+                            (if (and enabled (not safe))
+                                (setq inhibit-mode 'flash)
+                                nil))))
+                (write-status-led *status-ready-led-pin* ready-mode)
+                (write-status-led *status-inhibit-led-pin* inhibit-mode)
+                (write-status-led *status-fault-led-pin* fault-mode)))
+        nil))
+
 (defun check-loop-overrun ()
     (if (and *enable-loop-watchdog* (> (secs-since *loop-start*) *loop-overrun-sec*))
         (progn
@@ -1009,14 +1071,41 @@
         (eq *cruise-latch-mode* 'toggle)
         (eq *cruise-latch-mode* 'hold)))
 
+(defun status-led-pin-free (pin)
+    (and
+        (not (= pin *can-tx-pin*))
+        (not (= pin *can-rx-pin*))
+        (or (not (eq *enable-mode* 'local-gpio)) (not (= pin *enable-gpio-pin*)))
+        (or (not (eq *brake-mode* 'local-gpio)) (not (= pin *brake-gpio-pin*)))
+        (or (not (eq *direction-mode* 'local-gpio)) (not (= pin *direction-gpio-pin*)))
+        (or (not (eq *cruise-mode* 'local-gpio)) (not (= pin *cruise-gpio-pin*)))
+        (or (not (eq *cruise-cancel-mode* 'local-gpio)) (not (= pin *cruise-cancel-gpio-pin*)))
+        (or (not *heartbeat-enable*) (not (= pin *heartbeat-gpio-pin*)))))
+
+(defun status-led-pins-valid ()
+    (or
+        (not *status-led-enable*)
+        (and
+            (>= *status-ready-led-pin* 0)
+            (>= *status-inhibit-led-pin* 0)
+            (>= *status-fault-led-pin* 0)
+            (not (= *status-ready-led-pin* *status-inhibit-led-pin*))
+            (not (= *status-ready-led-pin* *status-fault-led-pin*))
+            (not (= *status-inhibit-led-pin* *status-fault-led-pin*))
+            (status-led-pin-free *status-ready-led-pin*)
+            (status-led-pin-free *status-inhibit-led-pin*)
+            (status-led-pin-free *status-fault-led-pin*))))
+
 (defun valid-safety-config ()
     (and
         (> *direction-change-command-threshold* 0.0)
         (> *loop-overrun-sec* 0.0)
         (> *heartbeat-period-sec* 0.0)
+        (or (not *status-led-enable*) (> *status-led-flash-period-sec* 0.0))
         (>= *brake-command* 0.0)
         (or (not (eq *brake-mode* 'local-gpio)) (>= *brake-gpio-pin* 0))
-        (or (not *heartbeat-enable*) (>= *heartbeat-gpio-pin* 0))))
+        (or (not *heartbeat-enable*) (>= *heartbeat-gpio-pin* 0))
+        (status-led-pins-valid)))
 
 (defun start-can ()
     (progn
@@ -1056,6 +1145,17 @@
             (gpio-write *heartbeat-gpio-pin* 0))
         nil))
 
+(defun setup-status-leds ()
+    (if *status-led-enable*
+        (progn
+            (gpio-configure *status-ready-led-pin* 'pin-mode-out)
+            (gpio-configure *status-inhibit-led-pin* 'pin-mode-out)
+            (gpio-configure *status-fault-led-pin* 'pin-mode-out)
+            (write-status-led *status-ready-led-pin* 'off)
+            (write-status-led *status-inhibit-led-pin* 'off)
+            (write-status-led *status-fault-led-pin* 'off))
+        nil))
+
 ; ----------------------------
 ; Startup and main loop
 ; ----------------------------
@@ -1082,6 +1182,7 @@
         (setup-direction-input)
         (setup-cruise-inputs)
         (setup-heartbeat)
+        (setup-status-leds)
         (print (list 'skid-start *vehicle-name*
                      'mode *control-mode*
                      'layout *drive-layout*
@@ -1090,7 +1191,8 @@
                      'direction *direction-mode*
                      'brake *brake-mode*
                      'cruise *cruise-mode*
-                     'heartbeat *heartbeat-enable*))
+                     'heartbeat *heartbeat-enable*
+                     'status-leds *status-led-enable*))
         (loopwhile t
             (progn
                 (setq *loop-start* (systime))
@@ -1149,6 +1251,7 @@
                                     (send-stop)
                                     (maybe-log 'stop throttle steer 0.0 0.0)))))
                     (check-loop-overrun)
+                    (update-status-leds enabled safe brake-active)
                     (update-heartbeat)
                     (sleep *loop-period-sec*))))))
     (progn
@@ -1162,5 +1265,6 @@
                      'brake *brake-mode*
                      'cruise *cruise-mode*
                      'cancel *cruise-cancel-mode*
-                     'heartbeat *heartbeat-enable*))
+                     'heartbeat *heartbeat-enable*
+                     'status-leds *status-led-enable*))
         (loopwhile t (sleep 1.0))))

@@ -282,6 +282,29 @@ These add extra checks, but only enable them after CAN status messages are confi
 
 If these are enabled before the motor VESCs broadcast the right status messages, the script will stop because it cannot prove the motors are fresh and below temperature limits.
 
+## Dash Status LEDs
+
+The script can drive three dash LEDs:
+
+```lisp
+(def *status-led-enable* t)
+(def *status-ready-led-pin* 11)
+(def *status-inhibit-led-pin* 12)
+(def *status-fault-led-pin* 13)
+(def *status-led-active-high* t)
+(def *status-led-flash-period-sec* 0.50)
+```
+
+Recommended colors:
+
+| LED | Color | On | Flashing |
+|---|---|---|---|
+| Ready | Green | Drive is armed and can send commands. | Enable is on and checks are OK, but the script is waiting for neutral arming. |
+| Inhibit | Amber | Enable input is off. | Enable is on, but a non-fault state is preventing drive, usually direction-change lock. |
+| Fault / brake | Red | Brake input is active. | A script fault is latched. |
+
+Red has priority. During a latched fault, the ready and inhibit LEDs stay off while the red LED flashes.
+
 ## Runtime Logging
 
 For normal driving, leave console printing off:
