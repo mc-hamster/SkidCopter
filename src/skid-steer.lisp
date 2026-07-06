@@ -257,10 +257,10 @@
 (def *heartbeat-gpio-pin* 15)
 (def *heartbeat-period-sec* 0.50)
 
-; Optional dash status LEDs. Recommended colors are green on the ready LED,
-; amber on the inhibit LED, and red on the fault LED. The default pins are
-; spare low-speed GPIOs on the ESP32-S3-DevKitC-1 header.
-(def *status-led-enable* nil)
+; Dash status LEDs. Recommended colors are green on the ready LED, amber on
+; the inhibit LED, and red on the fault LED. The default pins are spare
+; low-speed GPIOs on the ESP32-S3-DevKitC-1 header.
+(def *status-led-enable* t)
 (def *status-ready-led-pin* 11)
 (def *status-inhibit-led-pin* 12)
 (def *status-fault-led-pin* 13)

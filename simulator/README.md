@@ -90,7 +90,7 @@ Use `Manual` scenario when you want direct control:
 - `Throttle`: normalized input from reverse to forward.
 - `Steer`: normalized steering input. Disabled when using `Same power`.
 - `Enable`: simulated enable switch.
-- `Brake`: simulated operator brake input. Set `Brake mode` to a non-`Off` mode for the Lisp script to use it.
+- `Brake`: simulated operator brake input. The simulator starts with `Brake mode` set to `Local GPIO` so the button and brake scenario work immediately; switch it to `Off` when testing a configuration with no dedicated brake input.
 - `Cruise` and `Cancel`: available when cruise mode is enabled.
 
 The Lisp script still requires neutral arming when `*require-neutral-on-enable*` is enabled. If the vehicle does not drive immediately, return throttle and steering to neutral, make sure the configured enable mode is active, and wait for the arming delay.

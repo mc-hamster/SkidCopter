@@ -162,7 +162,7 @@ Use heartbeat only as an input to another safety device or supervisory controlle
 
 ## Dash Status LEDs
 
-The optional dash LEDs are operator indicators, not safety-rated outputs.
+The dash LEDs are operator indicators, not safety-rated outputs.
 
 Recommended colors:
 

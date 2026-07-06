@@ -373,12 +373,18 @@ export class LispRuntime {
       motorStatusStaleSec: "*motor-status-stale-sec*",
       maxFetTempC: "*max-fet-temp-c*",
       maxMotorTempC: "*max-motor-temp-c*",
+      statusReadyLedPin: "*status-ready-led-pin*",
+      statusInhibitLedPin: "*status-inhibit-led-pin*",
+      statusFaultLedPin: "*status-fault-led-pin*",
+      statusLedFlashPeriodSec: "*status-led-flash-period-sec*",
     };
     const booleanVars = {
       requireNeutralOnEnable: "*require-neutral-on-enable*",
       cruiseCancelOnThrottle: "*cruise-cancel-on-throttle*",
       requireMotorStatus: "*require-motor-status*",
       enableThermalStop: "*enable-thermal-stop*",
+      statusLedEnable: "*status-led-enable*",
+      statusLedActiveHigh: "*status-led-active-high*",
     };
 
     for (const [key, variable] of Object.entries(symbolVars)) {

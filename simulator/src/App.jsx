@@ -5,7 +5,6 @@ import {
   Pause,
   Play,
   RotateCcw,
-  Route,
   SlidersHorizontal,
   StepForward,
   Zap,
@@ -17,14 +16,6 @@ import { getScenario, sampleScenario, scenarios } from "./data/scenarios";
 import { GROUND_SURFACE_CUSTOM_ID, getGroundSurface, groundSurfaces } from "./data/groundSurfaces";
 import { defaultControlInput, defaultVehicleConfig, SkidController } from "./sim/skidController";
 import { createInitialVehicleState, stepVehicle } from "./sim/vehiclePhysics";
-
-const TODO_ITEMS = [
-  { label: "Inertia model", done: true },
-  { label: "Acceleration limits", done: true },
-  { label: "Tire slip", done: true },
-  { label: "Caster drag", done: false },
-  { label: "Calibrated motor response", done: false },
-];
 
 const FT_TO_M = 0.3048;
 const M_TO_FT = 1 / FT_TO_M;
@@ -545,6 +536,7 @@ function VehicleScene({ config, frame, followCamera }) {
           </span>
         </div>
         <div className="scene-readouts">
+          <StatusLightsDisplay statusLights={frame.telemetry.statusLights} compact />
           <span>{formatNumber(metersPerSecondToMph(frame.vehicleState.speedMps))} mph</span>
           <span>{formatNumber((frame.vehicleState.yawRateRad * 180) / Math.PI, 1)} deg/s</span>
           <span>{formatNumber(metersToFeet(frame.vehicleState.distanceM), 1)} ft</span>
@@ -649,6 +641,24 @@ function ToggleButton({ active, onClick, children, tone = "default", disabled })
     >
       {children}
     </button>
+  );
+}
+
+function StatusLightsDisplay({ statusLights, compact = false }) {
+  const lights = statusLights?.lights || [];
+  return (
+    <div className={classNames("status-lights", compact && "compact", !statusLights?.enabled && "disabled")}>
+      {lights.map((light) => (
+        <span
+          key={light.key}
+          className={classNames("status-light", light.key, light.active && "active")}
+          title={`${light.label} GPIO${light.pin}`}
+        >
+          <i aria-hidden="true" />
+          {!compact && <b>{light.label}</b>}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -916,6 +926,12 @@ function ControlsPanel({ playback, setPlayback, manualInput, setManualInput, liv
       </div>
 
       <div className="panel-section">
+        <div className="panel-section-status">
+          <StatusLightsDisplay statusLights={frame.telemetry.statusLights} />
+        </div>
+      </div>
+
+      <div className="panel-section">
         <SelectField
           label="Enable mode"
           value={config.enableMode}
@@ -988,21 +1004,6 @@ function ControlsPanel({ playback, setPlayback, manualInput, setManualInput, liv
         </div>
       </div>
 
-      <div className="panel-section todo-section">
-        <div className="section-label">
-          <Route size={14} />
-          Next fidelity TODO
-        </div>
-        <ul>
-          {TODO_ITEMS.map((item) => (
-            <li key={item.label} className={item.done ? "done" : undefined}>
-              <input type="checkbox" readOnly checked={item.done} />
-              <span>{item.label}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
-
       <div className="panel-section compact-readout">
         <span>ADC throttle {formatNumber(frame.telemetry.sample.throttleVoltage, 2)} V</span>
         <span>ADC steer {formatNumber(frame.telemetry.sample.steerVoltage, 2)} V</span>
@@ -1067,6 +1068,7 @@ function TelemetryPanel({ frame }) {
           <StatusChip label="State" value={telemetry.state} tone={telemetry.state === "drive" ? "ok" : "quiet"} />
           <StatusChip label="Cruise" value={telemetry.cruiseActive ? "on" : "off"} tone={telemetry.cruiseActive ? "warn" : "quiet"} />
           <StatusChip label="Logic" value={telemetry.lispDirect ? "Lisp" : "error"} tone={telemetry.lispDirect ? "ok" : "fault"} />
+          <StatusLightsDisplay statusLights={telemetry.statusLights} />
           <StatusChip
             label="Slip"
             value={`${formatNumber(frame.vehicleState.slipRatio * 100, 0)}%`}
@@ -1216,6 +1218,7 @@ function App() {
     config.cruiseMode,
     config.cruiseCancelMode,
     config.cruiseLatchMode,
+    config.statusLedActiveHigh,
     config.wheelDiameterM,
     config.trackWidthM,
     config.wheelbaseM,

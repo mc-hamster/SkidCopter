@@ -20,6 +20,7 @@ export function createInitialVehicleState() {
 }
 
 const GRAVITY_MPS2 = 9.80665;
+const FULL_TURN_RAD = Math.PI * 2;
 
 function applyReverseScale(value, config) {
   return value < 0 ? value * config.reverseScale : value;
@@ -35,6 +36,10 @@ function moveToward(current, target, maxDelta) {
     return target;
   }
   return current + Math.sign(delta) * maxDelta;
+}
+
+function normalizeHeadingRad(value) {
+  return ((value % FULL_TURN_RAD) + FULL_TURN_RAD) % FULL_TURN_RAD;
 }
 
 function speedLimit(current, target, config, dt) {
@@ -88,7 +93,7 @@ export function stepVehicle(previous, telemetry, config, dt) {
       clamp(dt * slipResponse, 0, 1)
   );
   const speedMps = idealForwardSpeedMps * (1 - slipRatio * 0.15);
-  const heading = previous.heading + yawRateRad * dt;
+  const heading = normalizeHeadingRad(previous.heading + yawRateRad * dt);
   const forwardX = Math.sin(heading);
   const forwardZ = Math.cos(heading);
   const rightX = Math.cos(heading);

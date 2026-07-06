@@ -47,7 +47,7 @@ export const defaultVehicleConfig = {
   inputMode: def("*input-mode*", "local-adc"),
   directionMode: def("*direction-mode*", "throttle-axis"),
   enableMode: def("*enable-mode*", "always"),
-  brakeMode: def("*brake-mode*", "off"),
+  brakeMode: "local-gpio",
   cruiseMode: def("*cruise-mode*", "off"),
   cruiseCancelMode: def("*cruise-cancel-mode*", "off"),
   cruiseLatchMode: def("*cruise-latch-mode*", "toggle"),
@@ -97,6 +97,12 @@ export const defaultVehicleConfig = {
   enableThermalStop: def("*enable-thermal-stop*", false),
   maxFetTempC: def("*max-fet-temp-c*", 80),
   maxMotorTempC: def("*max-motor-temp-c*", 90),
+  statusLedEnable: def("*status-led-enable*", true),
+  statusReadyLedPin: def("*status-ready-led-pin*", 11),
+  statusInhibitLedPin: def("*status-inhibit-led-pin*", 12),
+  statusFaultLedPin: def("*status-fault-led-pin*", 13),
+  statusLedActiveHigh: def("*status-led-active-high*", true),
+  statusLedFlashPeriodSec: def("*status-led-flash-period-sec*", 0.5),
   leftFrontId: def("*left-front-id*", 11),
   leftRearId: def("*left-rear-id*", 12),
   rightFrontId: def("*right-front-id*", 21),
@@ -163,6 +169,32 @@ function normalizeCommands(runtime, commands) {
 function faultReason(runtime) {
   const reason = runtime.getValue("*fault-reason*");
   return symbolName(reason) || "none";
+}
+
+function statusLights(runtime, gpioWrites) {
+  const enabled = runtime.getBoolean("*status-led-enable*");
+  const activeHigh = runtime.getBoolean("*status-led-active-high*");
+  const lastValueByPin = new Map();
+  for (const write of gpioWrites) {
+    lastValueByPin.set(write.pin, write.value);
+  }
+
+  const lightForPin = (key, label, pinVariable) => {
+    const pin = runtime.getNumber(pinVariable);
+    const value = lastValueByPin.get(pin);
+    const active = enabled && value !== undefined && (activeHigh ? value === 1 : value === 0);
+    return { key, label, pin, active };
+  };
+
+  return {
+    enabled,
+    activeHigh,
+    lights: [
+      lightForPin("ready", "Ready", "*status-ready-led-pin*"),
+      lightForPin("inhibit", "Inhibit", "*status-inhibit-led-pin*"),
+      lightForPin("fault", "Fault", "*status-fault-led-pin*"),
+    ],
+  };
 }
 
 function controllerState(runtime, brakeActive) {
@@ -234,6 +266,7 @@ export class SkidController {
       mixLeft: runtime.getNumber("*mix-left*"),
       mixRight: runtime.getNumber("*mix-right*"),
       canOut: normalizeCommands(runtime, snapshot.canOut),
+      statusLights: statusLights(runtime, snapshot.gpioWrites),
       activeWheels: activeWheels(runtime),
       prints: snapshot.prints,
     };

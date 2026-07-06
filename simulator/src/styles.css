@@ -301,6 +301,10 @@ input[type="range"] {
   margin-top: 8px;
 }
 
+.panel-section-status {
+  margin-top: 10px;
+}
+
 .toggle-button {
   width: 100%;
   color: #d7e2e8;
@@ -339,36 +343,6 @@ input[type="range"] {
 .fault-section .section-label {
   color: var(--amber);
   justify-content: flex-start;
-}
-
-.todo-section .section-label {
-  justify-content: flex-start;
-  color: #d9e5eb;
-}
-
-.todo-section ul {
-  margin: 10px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 7px;
-}
-
-.todo-section li {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-
-.todo-section li.done {
-  color: #c9d5dc;
-}
-
-.todo-section input {
-  accent-color: var(--cyan);
 }
 
 .compact-readout {
@@ -459,12 +433,93 @@ input[type="range"] {
   justify-content: flex-end;
 }
 
-.scene-readouts span,
+.scene-readouts > span,
 .scene-overlay-bottom span {
   border: 1px solid rgba(67, 217, 255, 0.22);
   border-radius: var(--radius);
   padding: 5px 8px;
   background: rgba(6, 10, 14, 0.7);
+}
+
+.status-lights {
+  min-height: 34px;
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(34, 48, 59, 0.88);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  background: #0b1016;
+}
+
+.status-lights.compact {
+  min-height: 28px;
+  width: auto;
+  display: inline-flex;
+  padding: 5px 7px;
+  background: rgba(6, 10, 14, 0.7);
+}
+
+.status-lights.disabled {
+  opacity: 0.5;
+}
+
+.status-light {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 720;
+}
+
+.status-light i {
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(143, 160, 172, 0.55);
+  border-radius: 50%;
+  background: #101820;
+  box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.18);
+}
+
+.status-light b {
+  overflow: hidden;
+  font: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-light.ready.active {
+  color: var(--green);
+}
+
+.status-light.inhibit.active {
+  color: var(--amber);
+}
+
+.status-light.fault.active {
+  color: var(--red);
+}
+
+.status-light.ready.active i {
+  border-color: rgba(103, 214, 139, 0.86);
+  background: var(--green);
+  box-shadow: 0 0 11px rgba(103, 214, 139, 0.72);
+}
+
+.status-light.inhibit.active i {
+  border-color: rgba(246, 189, 96, 0.86);
+  background: var(--amber);
+  box-shadow: 0 0 11px rgba(246, 189, 96, 0.72);
+}
+
+.status-light.fault.active i {
+  border-color: rgba(255, 107, 107, 0.9);
+  background: var(--red);
+  box-shadow: 0 0 11px rgba(255, 107, 107, 0.74);
 }
 
 .telemetry-panel {

@@ -107,9 +107,9 @@ The assignments intentionally avoid ESP32-S3 strapping pins, native USB pins, UA
 | Optional cruise request | `*cruise-gpio-pin* 8` | GPIO8 | Unused until `*cruise-mode*` is `'local-gpio` | Safe low-speed input, grouped with the other operator switches. |
 | Optional direction switch | `*direction-gpio-pin* 9` | GPIO9 | Unused while `*direction-mode*` is `'throttle-axis` | Safe active-low switch input for builds with a one-direction throttle pedal. |
 | Optional enable switch | `*enable-gpio-pin* 10` | GPIO10 | Unused while `*enable-mode*` is `'always` | Safe active-low switch input with pull-up support, kept near the other operator switches. |
-| Dash ready LED, green | `*status-ready-led-pin* 11` | GPIO11 | Unused until `*status-led-enable*` is `t` | Contiguous spare low-speed output for the dash LED that shows drive ready or waiting-to-arm state. Do not share with external FSPI/SPI devices. |
-| Dash inhibit LED, amber | `*status-inhibit-led-pin* 12` | GPIO12 | Unused until `*status-led-enable*` is `t` | Contiguous spare low-speed output for disabled or operator-attention states. Do not share with external FSPI/SPI devices. |
-| Dash fault LED, red | `*status-fault-led-pin* 13` | GPIO13 | Unused until `*status-led-enable*` is `t` | Contiguous spare low-speed output for brake-active and latched-fault states. Do not share with external FSPI/SPI devices. |
+| Dash ready LED, green | `*status-ready-led-pin* 11` | GPIO11 | Active | Contiguous spare low-speed output for the dash LED that shows drive ready or waiting-to-arm state. Do not share with external FSPI/SPI devices. |
+| Dash inhibit LED, amber | `*status-inhibit-led-pin* 12` | GPIO12 | Active | Contiguous spare low-speed output for disabled or operator-attention states. Do not share with external FSPI/SPI devices. |
+| Dash fault LED, red | `*status-fault-led-pin* 13` | GPIO13 | Active | Contiguous spare low-speed output for brake-active and latched-fault states. Do not share with external FSPI/SPI devices. |
 | Optional heartbeat output | `*heartbeat-gpio-pin* 15` | GPIO15 | Unused until `*heartbeat-enable*` is `t` | Clear spare output on J1, away from boot, USB, UART0, JTAG, flash, and LED conflicts. |
 
 Wire switch inputs as active-low by default:
