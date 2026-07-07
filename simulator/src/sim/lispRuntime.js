@@ -236,6 +236,36 @@ function commandRecord(fn, id, value, timeout = null, brake = false) {
   };
 }
 
+function faultApplies(value, id) {
+  if (Array.isArray(value)) {
+    return value.includes(id);
+  }
+  if (value instanceof Set) {
+    return value.has(id);
+  }
+  if (value && typeof value === "object") {
+    return Boolean(value[id] ?? value[String(id)]);
+  }
+  return Boolean(value);
+}
+
+function numericOverride(value, id, msg = null) {
+  if (Number.isFinite(value)) {
+    return value;
+  }
+  if (value instanceof Map) {
+    const keyed = msg === null ? value.get(id) : (value.get(`${id}:${msg}`) ?? value.get(id));
+    return Number.isFinite(keyed) ? keyed : undefined;
+  }
+  if (value && typeof value === "object") {
+    const keyed = msg === null
+      ? (value[id] ?? value[String(id)])
+      : (value[`${id}:${msg}`] ?? value[id] ?? value[String(id)]);
+    return Number.isFinite(keyed) ? keyed : undefined;
+  }
+  return undefined;
+}
+
 export class LispRuntime {
   constructor(source, config = {}) {
     this.source = source;
@@ -287,8 +317,20 @@ export class LispRuntime {
     define("canget-adc", (id, channel) => this.readCanAdc(id, channel));
     define("canget-ppm", () => Number(this.hostInput.throttle) || 0);
     define("can-msg-age", (id, msg) => this.canMsgAge(id, msg));
-    define("canget-temp-fet", () => (this.hostInput.thermalFault ? this.getNumber("*max-fet-temp-c*") + 10 : 42));
-    define("canget-temp-motor", () => (this.hostInput.thermalFault ? this.getNumber("*max-motor-temp-c*") + 10 : 38));
+    define("canget-temp-fet", (id) => {
+      const override = numericOverride(this.hostInput.fetTempC, id);
+      if (override !== undefined) {
+        return override;
+      }
+      return faultApplies(this.hostInput.thermalFault, id) ? this.getNumber("*max-fet-temp-c*") + 10 : 42;
+    });
+    define("canget-temp-motor", (id) => {
+      const override = numericOverride(this.hostInput.motorTempC, id);
+      if (override !== undefined) {
+        return override;
+      }
+      return faultApplies(this.hostInput.thermalFault, id) ? this.getNumber("*max-motor-temp-c*") + 10 : 38;
+    });
     define("canset-current-rel", (id, value, timeout) => this.pushCommand(commandRecord("canset-current-rel", id, value, timeout)));
     define("canset-current", (id, value, timeout) => this.pushCommand(commandRecord("canset-current", id, value, timeout)));
     define("canset-duty", (id, value) => this.pushCommand(commandRecord("canset-duty", id, value)));
@@ -325,18 +367,52 @@ export class LispRuntime {
       controlMode: "*control-mode*",
       inputMode: "*input-mode*",
       directionMode: "*direction-mode*",
+      directionGpioMode: "*direction-gpio-mode*",
       enableMode: "*enable-mode*",
+      enableGpioMode: "*enable-gpio-mode*",
       brakeMode: "*brake-mode*",
+      brakeGpioMode: "*brake-gpio-mode*",
       cruiseMode: "*cruise-mode*",
+      cruiseGpioMode: "*cruise-gpio-mode*",
       cruiseCancelMode: "*cruise-cancel-mode*",
+      cruiseCancelGpioMode: "*cruise-cancel-gpio-mode*",
       cruiseLatchMode: "*cruise-latch-mode*",
       heartbeatMode: "*heartbeat-mode*",
     };
     const numberVars = {
+      canTxPin: "*can-tx-pin*",
+      canRxPin: "*can-rx-pin*",
       leftFrontId: "*left-front-id*",
       leftRearId: "*left-rear-id*",
       rightFrontId: "*right-front-id*",
       rightRearId: "*right-rear-id*",
+      throttleAdcChannel: "*throttle-adc-channel*",
+      steerAdcChannel: "*steer-adc-channel*",
+      inputCanId: "*input-can-id*",
+      canThrottleAdcChannel: "*can-throttle-adc-channel*",
+      canSteerAdcChannel: "*can-steer-adc-channel*",
+      directionGpioPin: "*direction-gpio-pin*",
+      directionAdcChannel: "*direction-adc-channel*",
+      directionAdcThresholdV: "*direction-adc-threshold-v*",
+      canDirectionAdcChannel: "*can-direction-adc-channel*",
+      enableGpioPin: "*enable-gpio-pin*",
+      enableAdcChannel: "*enable-adc-channel*",
+      enableAdcThresholdV: "*enable-adc-threshold-v*",
+      canEnableAdcChannel: "*can-enable-adc-channel*",
+      cruiseGpioPin: "*cruise-gpio-pin*",
+      cruiseAdcChannel: "*cruise-adc-channel*",
+      cruiseAdcThresholdV: "*cruise-adc-threshold-v*",
+      canCruiseAdcChannel: "*can-cruise-adc-channel*",
+      cruiseCancelGpioPin: "*cruise-cancel-gpio-pin*",
+      cruiseCancelAdcChannel: "*cruise-cancel-adc-channel*",
+      cruiseCancelAdcThresholdV: "*cruise-cancel-adc-threshold-v*",
+      canCruiseCancelAdcChannel: "*can-cruise-cancel-adc-channel*",
+      brakeGpioPin: "*brake-gpio-pin*",
+      brakeAdcChannel: "*brake-adc-channel*",
+      brakeAdcThresholdV: "*brake-adc-threshold-v*",
+      canBrakeAdcChannel: "*can-brake-adc-channel*",
+      selectorDebounceSec: "*selector-debounce-sec*",
+      selectorAdcHysteresisV: "*selector-adc-hysteresis-v*",
       leftFrontSign: "*left-front-sign*",
       leftRearSign: "*left-rear-sign*",
       rightFrontSign: "*right-front-sign*",
@@ -363,6 +439,7 @@ export class LispRuntime {
       armNeutralSec: "*arm-neutral-sec*",
       armNeutralThrottle: "*arm-neutral-throttle*",
       armNeutralSteer: "*arm-neutral-steer*",
+      directionChangeCommandThreshold: "*direction-change-command-threshold*",
       cruiseMinCommand: "*cruise-min-command*",
       cruiseThrottleCancelDelta: "*cruise-throttle-cancel-delta*",
       throttleMinV: "*throttle-min-v*",
@@ -380,21 +457,39 @@ export class LispRuntime {
       motorStatusStaleSec: "*motor-status-stale-sec*",
       maxFetTempC: "*max-fet-temp-c*",
       maxMotorTempC: "*max-motor-temp-c*",
+      loopOverrunSec: "*loop-overrun-sec*",
+      heartbeatGpioPin: "*heartbeat-gpio-pin*",
       heartbeatPeriodSec: "*heartbeat-period-sec*",
       statusReadyLedPin: "*status-ready-led-pin*",
       statusInhibitLedPin: "*status-inhibit-led-pin*",
       statusFaultLedPin: "*status-fault-led-pin*",
       statusLedFlashPeriodSec: "*status-led-flash-period-sec*",
+      statusPrintPeriodSec: "*status-print-period-sec*",
     };
     const booleanVars = {
+      invertThrottle: "*invert-throttle*",
+      invertSteer: "*invert-steer*",
+      directionReverseActiveHigh: "*direction-reverse-active-high*",
+      directionAdcActiveHigh: "*direction-adc-active-high*",
       requireNeutralOnEnable: "*require-neutral-on-enable*",
+      directionNeutralLock: "*direction-neutral-lock*",
+      enableActiveHigh: "*enable-active-high*",
+      enableAdcActiveHigh: "*enable-adc-active-high*",
+      brakeActiveHigh: "*brake-active-high*",
+      brakeAdcActiveHigh: "*brake-adc-active-high*",
+      cruiseActiveHigh: "*cruise-active-high*",
+      cruiseAdcActiveHigh: "*cruise-adc-active-high*",
+      cruiseCancelActiveHigh: "*cruise-cancel-active-high*",
+      cruiseCancelAdcActiveHigh: "*cruise-cancel-adc-active-high*",
       cruiseCancelOnThrottle: "*cruise-cancel-on-throttle*",
       requireMotorStatus: "*require-motor-status*",
       enableThermalStop: "*enable-thermal-stop*",
       steerDerateEnable: "*steer-derate-enable*",
+      enableLoopWatchdog: "*enable-loop-watchdog*",
       heartbeatEnable: "*heartbeat-enable*",
       statusLedEnable: "*status-led-enable*",
       statusLedActiveHigh: "*status-led-active-high*",
+      printStatus: "*print-status*",
     };
 
     for (const [key, variable] of Object.entries(symbolVars)) {
@@ -608,6 +703,9 @@ export class LispRuntime {
     const cruiseCancelMode = this.getSymbolName("*cruise-cancel-mode*");
 
     if (channel === throttleChannel) {
+      if (Number.isFinite(input.throttleVoltage)) {
+        return input.throttleVoltage;
+      }
       if (input.adcFault) {
         return this.getNumber("*throttle-max-v*") + this.getNumber("*adc-fault-margin-v*") + 0.4;
       }
@@ -619,6 +717,12 @@ export class LispRuntime {
       );
     }
     if (channel === steerChannel) {
+      if (Number.isFinite(input.steerVoltage)) {
+        return input.steerVoltage;
+      }
+      if (input.steerAdcFault) {
+        return this.getNumber("*steer-max-v*") + this.getNumber("*adc-fault-margin-v*") + 0.4;
+      }
       return axisToVoltage(
         Number(input.steer) || 0,
         this.getNumber("*steer-min-v*"),
@@ -627,6 +731,9 @@ export class LispRuntime {
       );
     }
     if (channel === directionChannel && ((!canBacked && directionMode === "local-adc") || (canBacked && directionMode === "can-adc"))) {
+      if (Number.isFinite(input.directionVoltage)) {
+        return input.directionVoltage;
+      }
       return voltageForSelector(
         Boolean(input.directionReverse),
         this.getNumber("*direction-adc-threshold-v*"),
@@ -634,12 +741,21 @@ export class LispRuntime {
       );
     }
     if (channel === enableChannel && ((!canBacked && enableMode === "local-adc") || (canBacked && enableMode === "can-adc"))) {
+      if (Number.isFinite(input.enableVoltage)) {
+        return input.enableVoltage;
+      }
       return voltageForSelector(Boolean(input.enable), this.getNumber("*enable-adc-threshold-v*"), this.getBoolean("*enable-adc-active-high*"));
     }
     if (channel === brakeChannel && ((!canBacked && brakeMode === "local-adc") || (canBacked && brakeMode === "can-adc"))) {
+      if (Number.isFinite(input.brakeVoltage)) {
+        return input.brakeVoltage;
+      }
       return voltageForSelector(Boolean(input.brake), this.getNumber("*brake-adc-threshold-v*"), this.getBoolean("*brake-adc-active-high*"));
     }
     if (channel === cruiseChannel && ((!canBacked && cruiseMode === "local-adc") || (canBacked && cruiseMode === "can-adc"))) {
+      if (Number.isFinite(input.cruiseVoltage)) {
+        return input.cruiseVoltage;
+      }
       return voltageForSelector(
         Boolean(input.cruiseRequest),
         this.getNumber("*cruise-adc-threshold-v*"),
@@ -650,6 +766,9 @@ export class LispRuntime {
       channel === cruiseCancelChannel &&
       ((!canBacked && cruiseCancelMode === "local-adc") || (canBacked && cruiseCancelMode === "can-adc"))
     ) {
+      if (Number.isFinite(input.cruiseCancelVoltage)) {
+        return input.cruiseCancelVoltage;
+      }
       return voltageForSelector(
         Boolean(input.cruiseCancel),
         this.getNumber("*cruise-cancel-adc-threshold-v*"),
@@ -682,9 +801,16 @@ export class LispRuntime {
   canMsgAge(id, msg) {
     const input = this.hostInput;
     if (id === this.getNumber("*input-can-id*") && msg === 6) {
+      if (Number.isFinite(input.can6Age)) {
+        return input.can6Age;
+      }
       return input.staleCan ? this.getNumber("*input-stale-sec*") + 0.1 : 0.01;
     }
-    if ((msg === 1 || msg === 4) && input.motorStatusStale) {
+    const statusAge = numericOverride(input.motorStatusAge, id, msg);
+    if ((msg === 1 || msg === 4) && statusAge !== undefined) {
+      return statusAge;
+    }
+    if ((msg === 1 || msg === 4) && faultApplies(input.motorStatusStale, id)) {
       return this.getNumber("*motor-status-stale-sec*") + 0.1;
     }
     return 0.01;

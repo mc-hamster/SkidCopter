@@ -56,7 +56,7 @@ export const defaultVehicleConfig = {
   trackWidthM: 1.28,
   wheelbaseM: 1.72,
   massKg: 180,
-  maxSpeedMps: 3.2,
+  maxSpeedMps: 4.4704,
   driveForceN: 520,
   brakeForceN: 900,
   tireFrictionG: 0.85,
