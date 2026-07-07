@@ -28,9 +28,10 @@ const LBF_TO_N = 1 / N_TO_LBF;
 const MPS_TO_MPH = 2.2369362921;
 const MPH_TO_MPS = 1 / MPS_TO_MPH;
 const MPS2_TO_FTPS2 = M_TO_FT;
-const TEST_PAD_SIZE_FT = 160;
+const TEST_PAD_SIZE_FT = 800;
 const TEST_PAD_SIZE_M = TEST_PAD_SIZE_FT * FT_TO_M;
 const GROUND_TEXTURE_SIZE = 512;
+const GROUND_TEXTURE_REPEAT = 9 * (TEST_PAD_SIZE_FT / 160);
 
 function formatNumber(value, digits = 2) {
   if (!Number.isFinite(value)) {
@@ -65,6 +66,10 @@ function metersPerSecondSquaredToFeet(value) {
 
 function classNames(...parts) {
   return parts.filter(Boolean).join(" ");
+}
+
+function clampNumber(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function createSeededRandom(seedText) {
@@ -176,7 +181,7 @@ function createGroundSurfaceTexture(surface) {
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(9, 9);
+  texture.repeat.set(GROUND_TEXTURE_REPEAT, GROUND_TEXTURE_REPEAT);
   texture.anisotropy = 4;
   return texture;
 }
@@ -408,21 +413,26 @@ function VehicleScene({ config, frame, followCamera }) {
       for (const [key, x, z, side] of wheelDefs) {
         const pivot = new THREE.Group();
         pivot.position.set(x, wheelY, z);
+        const swivel = new THREE.Group();
+        const spin = new THREE.Group();
         const powered = activeWheels[key];
+        const axle = z > 0 ? "front" : "rear";
+        pivot.add(swivel);
+        swivel.add(spin);
 
         const tire = new THREE.Mesh(
           new THREE.CylinderGeometry(wheelRadius, wheelRadius, wheelWidth, 28),
           powered ? wheelMat : inactiveWheelMat
         );
         tire.rotation.z = Math.PI / 2;
-        pivot.add(tire);
+        spin.add(tire);
 
         const hub = new THREE.Mesh(
           new THREE.CylinderGeometry(wheelRadius * 0.44, wheelRadius * 0.44, wheelWidth * 1.04, 20),
           hubMat
         );
         hub.rotation.z = Math.PI / 2;
-        pivot.add(hub);
+        spin.add(hub);
 
         if (powered) {
           const stripe = new THREE.Mesh(
@@ -430,11 +440,11 @@ function VehicleScene({ config, frame, followCamera }) {
             accentMat
           );
           stripe.position.x = side === "left" ? -wheelWidth * 0.52 : wheelWidth * 0.52;
-          pivot.add(stripe);
+          spin.add(stripe);
         }
 
         group.add(pivot);
-        wheels[key] = pivot;
+        wheels[key] = { pivot, swivel, spin, powered, axle };
       }
 
       scene.add(group);
@@ -464,10 +474,18 @@ function VehicleScene({ config, frame, followCamera }) {
         const { group, wheels } = modelRef.current;
         group.position.set(vehicle.x, 0, vehicle.z);
         group.rotation.y = vehicle.heading;
-        wheels.leftFront.rotation.x = vehicle.leftWheelAngle;
-        wheels.leftRear.rotation.x = vehicle.leftWheelAngle;
-        wheels.rightFront.rotation.x = vehicle.rightWheelAngle;
-        wheels.rightRear.rotation.x = vehicle.rightWheelAngle;
+        const setWheelPose = (wheel, spinAngle) => {
+          wheel.spin.rotation.x = spinAngle;
+          wheel.swivel.rotation.y = wheel.powered
+            ? 0
+            : wheel.axle === "front"
+              ? vehicle.frontCasterAngleRad
+              : vehicle.rearCasterAngleRad;
+        };
+        setWheelPose(wheels.leftFront, vehicle.leftWheelAngle);
+        setWheelPose(wheels.leftRear, vehicle.leftWheelAngle);
+        setWheelPose(wheels.rightFront, vehicle.rightWheelAngle);
+        setWheelPose(wheels.rightRear, vehicle.rightWheelAngle);
       }
 
       if (trailRef.current) {
@@ -556,6 +574,9 @@ function VehicleScene({ config, frame, followCamera }) {
           <span>{formatNumber((frame.vehicleState.yawRateRad * 180) / Math.PI, 1)} deg/s</span>
           <span>{formatNumber(metersToFeet(frame.vehicleState.distanceM), 1)} ft</span>
           <span>slip {formatNumber(frame.vehicleState.slipRatio * 100, 0)}%</span>
+          {frame.vehicleState.casterAxle !== "none" ? (
+            <span>caster {formatNumber(frame.vehicleState.casterScrubRatio * 100, 0)}%</span>
+          ) : null}
         </div>
       </div>
       <div className="scene-overlay scene-overlay-bottom">
@@ -846,6 +867,41 @@ function VehiclePanel({ config, setConfig }) {
           step="0.05"
           onChange={updateTireGrip}
         />
+        <div className="grid-two nested-grid">
+          <ConvertedNumberField
+            label="Caster roll drag"
+            siValue={config.casterRollingDragN}
+            unit="lbf"
+            min="0"
+            max="300"
+            step="1"
+            digits={0}
+            toDisplay={newtonsToPoundsForce}
+            fromDisplay={(value) => value * LBF_TO_N}
+            onChange={(casterRollingDragN) => update({ casterRollingDragN })}
+          />
+          <ConvertedNumberField
+            label="Caster scrub"
+            siValue={config.casterScrubForceN}
+            unit="lbf"
+            min="0"
+            max="1000"
+            step="5"
+            digits={0}
+            toDisplay={newtonsToPoundsForce}
+            fromDisplay={(value) => value * LBF_TO_N}
+            onChange={(casterScrubForceN) => update({ casterScrubForceN })}
+          />
+        </div>
+        <NumberField
+          label="Caster swivel"
+          value={formatNumber(config.casterSwivelRateRadPerSec, 1)}
+          unit="rad/s"
+          min="0.1"
+          max="16"
+          step="0.1"
+          onChange={(casterSwivelRateRadPerSec) => update({ casterSwivelRateRadPerSec })}
+        />
         <SliderField
           label="Accel rate"
           min={0.05}
@@ -867,11 +923,131 @@ function VehiclePanel({ config, setConfig }) {
   );
 }
 
+function SelfCenteringJoystick({ throttle, steer, onChange, disabled, steerLocked }) {
+  const padRef = useRef(null);
+  const pointerIdRef = useRef(null);
+  const displaySteer = steerLocked ? 0 : steer;
+
+  const applyPointer = useCallback(
+    (event) => {
+      const pad = padRef.current;
+      if (!pad || disabled) {
+        return;
+      }
+
+      const rect = pad.getBoundingClientRect();
+      const rawX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      const rawY = 1 - ((event.clientY - rect.top) / rect.height) * 2;
+      const magnitude = Math.hypot(rawX, rawY);
+      const scale = magnitude > 1 ? 1 / magnitude : 1;
+      const nextSteer = steerLocked ? 0 : clampNumber(rawX * scale, -1, 1);
+      const nextThrottle = clampNumber(rawY * scale, -1, 1);
+
+      onChange({
+        throttle: Number(nextThrottle.toFixed(3)),
+        steer: Number(nextSteer.toFixed(3)),
+      });
+    },
+    [disabled, onChange, steerLocked]
+  );
+
+  const centerJoystick = useCallback(() => {
+    pointerIdRef.current = null;
+    if (!disabled) {
+      onChange({ throttle: 0, steer: 0 });
+    }
+  }, [disabled, onChange]);
+
+  const addReleaseListeners = useCallback(() => {
+    window.addEventListener("pointerup", centerJoystick, { once: true });
+    window.addEventListener("pointercancel", centerJoystick, { once: true });
+    window.addEventListener("mouseup", centerJoystick, { once: true });
+  }, [centerJoystick]);
+
+  const handlePointerDown = useCallback(
+    (event) => {
+      if (disabled) {
+        return;
+      }
+      event.preventDefault();
+      pointerIdRef.current = event.pointerId;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      addReleaseListeners();
+      applyPointer(event);
+    },
+    [addReleaseListeners, applyPointer, disabled]
+  );
+
+  const handlePointerMove = useCallback(
+    (event) => {
+      if (pointerIdRef.current !== event.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      applyPointer(event);
+    },
+    [applyPointer]
+  );
+
+  const handlePointerEnd = useCallback(
+    (event) => {
+      if (pointerIdRef.current !== event.pointerId) {
+        return;
+      }
+      event.preventDefault();
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+      centerJoystick();
+    },
+    [centerJoystick]
+  );
+
+  return (
+    <div className={classNames("joystick-control", disabled && "disabled-field", steerLocked && "steer-locked")}>
+      <div
+        ref={padRef}
+        className="joystick-pad"
+        role="application"
+        aria-label="Self-centering joystick"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerCancel={handlePointerEnd}
+        onLostPointerCapture={centerJoystick}
+      >
+        <span className="joystick-axis horizontal" aria-hidden="true" />
+        <span className="joystick-axis vertical" aria-hidden="true" />
+        <span
+          className="joystick-thumb"
+          style={{
+            transform: `translate(${displaySteer * 54}px, ${-throttle * 54}px)`,
+          }}
+          aria-hidden="true"
+        />
+      </div>
+      <div className="joystick-readout">
+        <span>
+          Throttle <strong>{formatNumber(throttle, 2)}</strong>
+        </span>
+        <span>
+          Steer <strong>{formatNumber(displaySteer, 2)}</strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function ControlsPanel({ playback, setPlayback, manualInput, setManualInput, liveInput, frame, config, setConfig }) {
+  const [manualControlMode, setManualControlMode] = useState("sliders");
   const scenario = getScenario(playback.scenario);
   const scenarioDriven = playback.scenario !== "manual";
   const visibleInput = scenarioDriven ? liveInput : manualInput;
   const patchInput = (patch) => setManualInput((current) => ({ ...current, ...patch }));
+  const selectManualControlMode = (nextMode) => {
+    setManualControlMode(nextMode);
+    if (nextMode === "joystick" && !scenarioDriven) {
+      patchInput({ throttle: 0, steer: 0 });
+    }
+  };
 
   return (
     <aside className="side-panel right-panel">
@@ -891,18 +1067,46 @@ function ControlsPanel({ playback, setPlayback, manualInput, setManualInput, liv
       </div>
 
       <div className="panel-section">
-        <SliderField
-          label="Throttle"
-          value={visibleInput.throttle}
-          onChange={(throttle) => patchInput({ throttle })}
-          disabled={scenarioDriven}
-        />
-        <SliderField
-          label="Steer"
-          value={visibleInput.steer}
-          onChange={(steer) => patchInput({ steer })}
-          disabled={scenarioDriven || config.mixMode === "same-power"}
-        />
+        <div className="segmented-control" aria-label="Manual control mode">
+          <button
+            type="button"
+            className={classNames(manualControlMode === "sliders" && "active")}
+            onClick={() => selectManualControlMode("sliders")}
+          >
+            Sliders
+          </button>
+          <button
+            type="button"
+            className={classNames(manualControlMode === "joystick" && "active")}
+            onClick={() => selectManualControlMode("joystick")}
+          >
+            Joystick
+          </button>
+        </div>
+        {manualControlMode === "joystick" ? (
+          <SelfCenteringJoystick
+            throttle={visibleInput.throttle}
+            steer={visibleInput.steer}
+            onChange={patchInput}
+            disabled={scenarioDriven}
+            steerLocked={config.mixMode === "same-power"}
+          />
+        ) : (
+          <>
+            <SliderField
+              label="Throttle"
+              value={visibleInput.throttle}
+              onChange={(throttle) => patchInput({ throttle })}
+              disabled={scenarioDriven}
+            />
+            <SliderField
+              label="Steer"
+              value={visibleInput.steer}
+              onChange={(steer) => patchInput({ steer })}
+              disabled={scenarioDriven || config.mixMode === "same-power"}
+            />
+          </>
+        )}
         <div className="button-grid">
           <ToggleButton
             active={visibleInput.enable}
@@ -1062,6 +1266,7 @@ function TelemetryChart({ history }) {
       <path d={makePath((sample) => sample.rightCommand)} className="chart-line right" />
       <path d={makePath((sample) => sample.speedMps, 0.18)} className="chart-line speed" />
       <path d={makePath((sample) => sample.slipRatio)} className="chart-line slip" />
+      <path d={makePath((sample) => sample.casterScrubRatio)} className="chart-line caster" />
     </svg>
   );
 }
@@ -1069,6 +1274,9 @@ function TelemetryChart({ history }) {
 function TelemetryPanel({ frame }) {
   const telemetry = frame.telemetry;
   const faultTone = telemetry.faultLatched ? "fault" : "quiet";
+  const casterActive = frame.vehicleState.casterAxle !== "none";
+  const casterScrubPercent = frame.vehicleState.casterScrubRatio * 100;
+  const casterDragLbf = newtonsToPoundsForce(frame.vehicleState.casterDragForceN);
 
   return (
     <section className="telemetry-panel">
@@ -1090,6 +1298,16 @@ function TelemetryPanel({ frame }) {
             tone={frame.vehicleState.tractionLimited ? "warn" : "quiet"}
           />
           <StatusChip
+            label="Caster"
+            value={casterActive ? `${formatNumber(casterScrubPercent, 0)}%` : "off"}
+            tone={casterActive && casterScrubPercent > 12 ? "warn" : "quiet"}
+          />
+          <StatusChip
+            label="Drag"
+            value={casterActive ? `${formatNumber(casterDragLbf, 0)} lbf` : "0 lbf"}
+            tone={casterActive && casterDragLbf > 25 ? "warn" : "quiet"}
+          />
+          <StatusChip
             label="Accel"
             value={`${formatNumber(metersPerSecondSquaredToFeet(frame.vehicleState.accelerationMps2), 1)} ft/s2`}
             tone="quiet"
@@ -1105,6 +1323,7 @@ function TelemetryPanel({ frame }) {
             <span className="legend-right">right command</span>
             <span className="legend-speed">speed</span>
             <span className="legend-slip">slip</span>
+            <span className="legend-caster">caster scrub</span>
           </div>
         </div>
         <div className="can-panel">
@@ -1186,6 +1405,8 @@ function App() {
         speedMps: vehicleRef.current.speedMps,
         yawRateRad: vehicleRef.current.yawRateRad,
         slipRatio: vehicleRef.current.slipRatio,
+        casterScrubRatio: vehicleRef.current.casterScrubRatio,
+        casterDragForceN: vehicleRef.current.casterDragForceN,
         accelerationMps2: vehicleRef.current.accelerationMps2,
         throttle: telemetry.throttle,
         steer: telemetry.steer,

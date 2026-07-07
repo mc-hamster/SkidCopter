@@ -3,6 +3,8 @@ export function createInitialVehicleState() {
     x: 0,
     z: 0,
     heading: 0,
+    frontCasterAngleRad: 0,
+    rearCasterAngleRad: 0,
     leftWheelAngle: 0,
     rightWheelAngle: 0,
     leftSpeedMps: 0,
@@ -14,6 +16,10 @@ export function createInitialVehicleState() {
     slipRatio: 0,
     slipAngleDeg: 0,
     tractionLimited: false,
+    casterAxle: "none",
+    casterScrubRatio: 0,
+    casterDragForceN: 0,
+    casterAlignmentErrorDeg: 0,
     distanceM: 0,
     trail: [{ x: 0, z: 0 }],
   };
@@ -30,6 +36,10 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+function numberOr(value, fallback) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function moveToward(current, target, maxDelta) {
   const delta = target - current;
   if (Math.abs(delta) <= maxDelta) {
@@ -40,6 +50,28 @@ function moveToward(current, target, maxDelta) {
 
 function normalizeHeadingRad(value) {
   return ((value % FULL_TURN_RAD) + FULL_TURN_RAD) % FULL_TURN_RAD;
+}
+
+function angleDeltaRad(target, current) {
+  return Math.atan2(Math.sin(target - current), Math.cos(target - current));
+}
+
+function moveAngleToward(current, target, maxDelta) {
+  const delta = angleDeltaRad(target, current);
+  if (Math.abs(delta) <= maxDelta) {
+    return target;
+  }
+  return current + Math.sign(delta) * maxDelta;
+}
+
+function casterAxleForLayout(driveLayout) {
+  if (driveLayout === "two-wheel-front") {
+    return "rear";
+  }
+  if (driveLayout === "two-wheel-rear") {
+    return "front";
+  }
+  return "none";
 }
 
 function speedLimit(current, target, config, dt) {
@@ -62,6 +94,35 @@ export function stepVehicle(previous, telemetry, config, dt) {
   const rightSpeed = speedLimit(previous.rightSpeedMps, targetRightSpeed, config, dt);
   const idealForwardSpeedMps = (leftSpeed + rightSpeed) * 0.5;
   const idealYawRateRad = (rightSpeed - leftSpeed) / Math.max(config.trackWidthM, 0.1);
+  const casterAxle = casterAxleForLayout(config.driveLayout);
+  const casterActive = casterAxle !== "none";
+  const casterOffsetM =
+    casterAxle === "front" ? config.wheelbaseM * 0.5 : casterAxle === "rear" ? -config.wheelbaseM * 0.5 : 0;
+  const currentCasterAngle =
+    casterAxle === "front" ? previous.frontCasterAngleRad : previous.rearCasterAngleRad;
+  const casterForwardMps = idealForwardSpeedMps;
+  const casterLateralMps = previous.lateralSlipMps + idealYawRateRad * casterOffsetM;
+  const casterSpeedMps = Math.hypot(casterForwardMps, casterLateralMps);
+  const desiredCasterAngle =
+    casterActive && casterSpeedMps > 0.03
+      ? Math.atan2(casterLateralMps, casterForwardMps)
+      : currentCasterAngle;
+  const casterSwivelRate = Math.max(numberOr(config.casterSwivelRateRadPerSec, 5), 0.1);
+  const nextCasterAngle = casterActive
+    ? moveAngleToward(currentCasterAngle, desiredCasterAngle, casterSwivelRate * dt)
+    : 0;
+  const frontCasterAngleRad =
+    casterAxle === "front" ? nextCasterAngle : moveAngleToward(previous.frontCasterAngleRad, 0, casterSwivelRate * dt);
+  const rearCasterAngleRad =
+    casterAxle === "rear" ? nextCasterAngle : moveAngleToward(previous.rearCasterAngleRad, 0, casterSwivelRate * dt);
+  const casterAlignmentErrorRad =
+    casterActive && casterSpeedMps > 0.03 ? angleDeltaRad(desiredCasterAngle, nextCasterAngle) : 0;
+  const casterScrubRatio = casterActive
+    ? clamp(Math.abs(Math.sin(casterAlignmentErrorRad)) * clamp(casterSpeedMps / 0.8, 0, 1), 0, 1)
+    : 0;
+  const casterRollingDragN = casterActive && casterSpeedMps > 0.03 ? Math.max(numberOr(config.casterRollingDragN, 35), 0) : 0;
+  const casterScrubDragN = casterActive ? Math.max(numberOr(config.casterScrubForceN, 220), 0) * casterScrubRatio : 0;
+  const casterDragForceN = casterRollingDragN + casterScrubDragN;
   const tireFrictionG = Math.max(config.tireFrictionG, 0.05);
   const maxLateralAccelMps2 = tireFrictionG * GRAVITY_MPS2;
   const lateralAccelDemandMps2 = Math.abs(idealForwardSpeedMps * idealYawRateRad);
@@ -78,7 +139,12 @@ export function stepVehicle(previous, telemetry, config, dt) {
   const yawInertiaKgm2 =
     (Math.max(config.massKg, 1) * (config.trackWidthM * config.trackWidthM + config.wheelbaseM * config.wheelbaseM)) / 12;
   const yawAccelLimitRad = (Math.max(config.driveForceN, config.brakeForceN, 1) * config.trackWidthM) / Math.max(yawInertiaKgm2, 0.01);
-  const yawRateRad = moveToward(previous.yawRateRad, slipLimitedYawRateRad, yawAccelLimitRad * dt);
+  const casterYawDampingRad =
+    casterActive && casterSpeedMps > 0.03
+      ? (casterDragForceN * Math.abs(casterOffsetM)) / Math.max(yawInertiaKgm2, 0.01)
+      : 0;
+  const yawRateBeforeCaster = moveToward(previous.yawRateRad, slipLimitedYawRateRad, yawAccelLimitRad * dt);
+  const yawRateRad = moveToward(yawRateBeforeCaster, 0, casterYawDampingRad * dt);
   const lateralSlipTargetMps =
     -Math.sign(idealYawRateRad || previous.yawRateRad || 0) *
     Math.sign(idealForwardSpeedMps || 1) *
@@ -92,7 +158,10 @@ export function stepVehicle(previous, telemetry, config, dt) {
     Math.max(Math.abs(lateralSlipTargetMps - previous.lateralSlipMps), 0.2) *
       clamp(dt * slipResponse, 0, 1)
   );
-  const speedMps = idealForwardSpeedMps * (1 - slipRatio * 0.15);
+  const casterDragRatio = casterActive
+    ? clamp(casterDragForceN / Math.max(config.driveForceN + casterDragForceN, 1), 0, 0.85)
+    : 0;
+  const speedMps = idealForwardSpeedMps * (1 - slipRatio * 0.15) * (1 - casterDragRatio * 0.7);
   const heading = normalizeHeadingRad(previous.heading + yawRateRad * dt);
   const forwardX = Math.sin(heading);
   const forwardZ = Math.cos(heading);
@@ -119,6 +188,8 @@ export function stepVehicle(previous, telemetry, config, dt) {
     x,
     z,
     heading,
+    frontCasterAngleRad,
+    rearCasterAngleRad,
     leftWheelAngle,
     rightWheelAngle,
     leftSpeedMps: leftSpeed,
@@ -130,6 +201,10 @@ export function stepVehicle(previous, telemetry, config, dt) {
     slipRatio,
     slipAngleDeg,
     tractionLimited: slipRatio > 0.01,
+    casterAxle,
+    casterScrubRatio,
+    casterDragForceN,
+    casterAlignmentErrorDeg: (Math.abs(casterAlignmentErrorRad) * 180) / Math.PI,
     distanceM,
     trail,
   };

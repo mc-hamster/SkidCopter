@@ -39,6 +39,22 @@ export const scenarios = [
     ],
   },
   {
+    id: "caster-turn",
+    name: "Caster Turn",
+    description: "Low-speed S-turn for caster swivel lag and scrub.",
+    duration: 10,
+    events: [
+      { at: 0.0, throttle: 0, steer: 0, enable: false, brake: false },
+      { at: 0.4, throttle: 0, steer: 0, enable: true, brake: false },
+      { at: 1.25, throttle: 0, steer: 0, enable: true, brake: false },
+      { at: 1.8, throttle: 0.32, steer: 0.52, enable: true, brake: false },
+      { at: 3.7, throttle: 0.32, steer: -0.52, enable: true, brake: false },
+      { at: 5.9, throttle: 0.28, steer: 0.42, enable: true, brake: false },
+      { at: 7.4, throttle: 0.2, steer: 0, enable: true, brake: false },
+      { at: 8.6, throttle: 0, steer: 0, enable: true, brake: false },
+    ],
+  },
+  {
     id: "brake-rearm",
     name: "Brake Re-arm",
     description: "Apply brake while driving, then require neutral before re-arm.",
@@ -83,6 +99,8 @@ const defaults = {
   adcFault: false,
   staleCan: false,
   thermalFault: false,
+  motorStatusStale: false,
+  directionReverse: false,
 };
 
 export function getScenario(id) {

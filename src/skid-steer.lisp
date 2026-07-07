@@ -41,6 +41,13 @@
 (def *right-front-sign* 1.0)
 (def *right-rear-sign* 1.0)
 
+; Per-wheel output trims. Keep these at 1.0 until bench testing shows that one
+; wheel needs a small correction after motor setup and wheel direction are right.
+(def *left-front-scale* 1.0)
+(def *left-rear-scale* 1.0)
+(def *right-front-scale* 1.0)
+(def *right-rear-scale* 1.0)
+
 ; ----------------------------
 ; Input configuration
 ; ----------------------------
@@ -88,6 +95,12 @@
 (def *throttle-deadband* 0.06)
 (def *steer-deadband* 0.06)
 (def *adc-fault-margin-v* 0.20)
+
+; Debounce switch-like inputs and add hysteresis to threshold ADC selectors.
+; Safety-inhibit edges still apply immediately: enable-off, brake-on, and
+; cruise-cancel-on do not wait for the debounce timer.
+(def *selector-debounce-sec* 0.04)
+(def *selector-adc-hysteresis-v* 0.10)
 
 ; Expo is a 0.0 to 1.0 blend between linear and cubic response.
 (def *throttle-expo* 0.20)
@@ -279,6 +292,7 @@
 (def *armed* nil)
 (def *fault-latched* nil)
 (def *fault-reason* 'none)
+(def *config-error* 'none)
 (def *direction-lock* nil)
 (def *last-direction-sign* 1.0)
 (def *cruise-active* nil)
@@ -293,6 +307,27 @@
 (def *last-heartbeat* (systime))
 (def *status-led-flash-state* 0)
 (def *last-status-led-flash* (systime))
+
+(def *enable-db-init* nil)
+(def *enable-db-state* nil)
+(def *enable-db-pending* nil)
+(def *enable-db-since* (systime))
+(def *brake-db-init* nil)
+(def *brake-db-state* nil)
+(def *brake-db-pending* nil)
+(def *brake-db-since* (systime))
+(def *direction-db-init* nil)
+(def *direction-db-state* nil)
+(def *direction-db-pending* nil)
+(def *direction-db-since* (systime))
+(def *cruise-db-init* nil)
+(def *cruise-db-state* nil)
+(def *cruise-db-pending* nil)
+(def *cruise-db-since* (systime))
+(def *cruise-cancel-db-init* nil)
+(def *cruise-cancel-db-state* nil)
+(def *cruise-cancel-db-pending* nil)
+(def *cruise-cancel-db-since* (systime))
 
 ; Hot-loop scratch state. Keeping these as globals avoids avoidable consing and
 ; duplicate extension calls in the 50 Hz control loop.
@@ -426,6 +461,162 @@
 (defun selector-active (value threshold active-high)
     (if active-high (> value threshold) (< value threshold)))
 
+(defun selector-active-hysteresis (value threshold active-high current init)
+    (if (not init)
+        (selector-active value threshold active-high)
+        (if active-high
+            (if current
+                (> value (- threshold *selector-adc-hysteresis-v*))
+                (> value (+ threshold *selector-adc-hysteresis-v*)))
+            (if current
+                (< value (+ threshold *selector-adc-hysteresis-v*))
+                (< value (- threshold *selector-adc-hysteresis-v*))))))
+
+(defun debounce-enable (raw)
+    (if (or (not (> *selector-debounce-sec* 0.0)) (not raw))
+        (progn
+            (setq *enable-db-init* t)
+            (setq *enable-db-state* raw)
+            (setq *enable-db-pending* raw)
+            (setq *enable-db-since* (systime))
+            *enable-db-state*)
+        (if (not *enable-db-init*)
+            (progn
+                (setq *enable-db-init* t)
+                (setq *enable-db-state* raw)
+                (setq *enable-db-pending* raw)
+                (setq *enable-db-since* (systime))
+                *enable-db-state*)
+            (if (eq raw *enable-db-state*)
+                (progn
+                    (setq *enable-db-pending* raw)
+                    (setq *enable-db-since* (systime))
+                    *enable-db-state*)
+                (if (eq raw *enable-db-pending*)
+                    (if (> (secs-since *enable-db-since*) *selector-debounce-sec*)
+                        (progn
+                            (setq *enable-db-state* raw)
+                            *enable-db-state*)
+                        *enable-db-state*)
+                    (progn
+                        (setq *enable-db-pending* raw)
+                        (setq *enable-db-since* (systime))
+                        *enable-db-state*))))))
+
+(defun debounce-brake (raw)
+    (if (or (not (> *selector-debounce-sec* 0.0)) raw)
+        (progn
+            (setq *brake-db-init* t)
+            (setq *brake-db-state* raw)
+            (setq *brake-db-pending* raw)
+            (setq *brake-db-since* (systime))
+            *brake-db-state*)
+        (if (not *brake-db-init*)
+            (progn
+                (setq *brake-db-init* t)
+                (setq *brake-db-state* raw)
+                (setq *brake-db-pending* raw)
+                (setq *brake-db-since* (systime))
+                *brake-db-state*)
+            (if (eq raw *brake-db-state*)
+                (progn
+                    (setq *brake-db-pending* raw)
+                    (setq *brake-db-since* (systime))
+                    *brake-db-state*)
+                (if (eq raw *brake-db-pending*)
+                    (if (> (secs-since *brake-db-since*) *selector-debounce-sec*)
+                        (progn
+                            (setq *brake-db-state* raw)
+                            *brake-db-state*)
+                        *brake-db-state*)
+                    (progn
+                        (setq *brake-db-pending* raw)
+                        (setq *brake-db-since* (systime))
+                        *brake-db-state*))))))
+
+(defun debounce-direction (raw)
+    (if (not (> *selector-debounce-sec* 0.0))
+        raw
+        (if (not *direction-db-init*)
+            (progn
+                (setq *direction-db-init* t)
+                (setq *direction-db-state* raw)
+                (setq *direction-db-pending* raw)
+                (setq *direction-db-since* (systime))
+                *direction-db-state*)
+            (if (eq raw *direction-db-state*)
+                (progn
+                    (setq *direction-db-pending* raw)
+                    (setq *direction-db-since* (systime))
+                    *direction-db-state*)
+                (if (eq raw *direction-db-pending*)
+                    (if (> (secs-since *direction-db-since*) *selector-debounce-sec*)
+                        (progn
+                            (setq *direction-db-state* raw)
+                            *direction-db-state*)
+                        *direction-db-state*)
+                    (progn
+                        (setq *direction-db-pending* raw)
+                        (setq *direction-db-since* (systime))
+                        *direction-db-state*))))))
+
+(defun debounce-cruise-request (raw)
+    (if (not (> *selector-debounce-sec* 0.0))
+        raw
+        (if (not *cruise-db-init*)
+            (progn
+                (setq *cruise-db-init* t)
+                (setq *cruise-db-state* raw)
+                (setq *cruise-db-pending* raw)
+                (setq *cruise-db-since* (systime))
+                *cruise-db-state*)
+            (if (eq raw *cruise-db-state*)
+                (progn
+                    (setq *cruise-db-pending* raw)
+                    (setq *cruise-db-since* (systime))
+                    *cruise-db-state*)
+                (if (eq raw *cruise-db-pending*)
+                    (if (> (secs-since *cruise-db-since*) *selector-debounce-sec*)
+                        (progn
+                            (setq *cruise-db-state* raw)
+                            *cruise-db-state*)
+                        *cruise-db-state*)
+                    (progn
+                        (setq *cruise-db-pending* raw)
+                        (setq *cruise-db-since* (systime))
+                        *cruise-db-state*))))))
+
+(defun debounce-cruise-cancel (raw)
+    (if (or (not (> *selector-debounce-sec* 0.0)) raw)
+        (progn
+            (setq *cruise-cancel-db-init* t)
+            (setq *cruise-cancel-db-state* raw)
+            (setq *cruise-cancel-db-pending* raw)
+            (setq *cruise-cancel-db-since* (systime))
+            *cruise-cancel-db-state*)
+        (if (not *cruise-cancel-db-init*)
+            (progn
+                (setq *cruise-cancel-db-init* t)
+                (setq *cruise-cancel-db-state* raw)
+                (setq *cruise-cancel-db-pending* raw)
+                (setq *cruise-cancel-db-since* (systime))
+                *cruise-cancel-db-state*)
+            (if (eq raw *cruise-cancel-db-state*)
+                (progn
+                    (setq *cruise-cancel-db-pending* raw)
+                    (setq *cruise-cancel-db-since* (systime))
+                    *cruise-cancel-db-state*)
+                (if (eq raw *cruise-cancel-db-pending*)
+                    (if (> (secs-since *cruise-cancel-db-since*) *selector-debounce-sec*)
+                        (progn
+                            (setq *cruise-cancel-db-state* raw)
+                            *cruise-cancel-db-state*)
+                        *cruise-cancel-db-state*)
+                    (progn
+                        (setq *cruise-cancel-db-pending* raw)
+                        (setq *cruise-cancel-db-since* (systime))
+                        *cruise-cancel-db-state*))))))
+
 (defun needs-can6 ()
     (or
         (not (eq *input-mode* 'local-adc))
@@ -442,31 +633,35 @@
             (setq *can6-fresh* (and *can6-age* (< *can6-age* *input-stale-sec*))))
         (setq *can6-fresh* t)))
 
+(defun read-direction-reverse ()
+    (if (eq *direction-mode* 'local-gpio)
+        (let ((pin-state (gpio-read *direction-gpio-pin*)))
+            (debounce-direction
+                (if *direction-reverse-active-high* (= pin-state 1) (= pin-state 0))))
+        (if (eq *direction-mode* 'local-adc)
+            (debounce-direction
+                (selector-active-hysteresis
+                    (get-adc *direction-adc-channel*)
+                    *direction-adc-threshold-v*
+                    *direction-adc-active-high*
+                    *direction-db-state*
+                    *direction-db-init*))
+            (if (eq *direction-mode* 'can-adc)
+                (debounce-direction
+                    (selector-active-hysteresis
+                        (canget-adc *input-can-id* *can-direction-adc-channel*)
+                        *direction-adc-threshold-v*
+                        *direction-adc-active-high*
+                        *direction-db-state*
+                        *direction-db-init*))
+                nil))))
+
 (defun read-direction-sign ()
-    (if (eq *direction-mode* 'throttle-axis)
-        1.0
-        (if (eq *direction-mode* 'fixed-forward)
+    (if (eq *direction-mode* 'fixed-reverse)
+        -1.0
+        (if (or (eq *direction-mode* 'throttle-axis) (eq *direction-mode* 'fixed-forward))
             1.0
-            (if (eq *direction-mode* 'fixed-reverse)
-                -1.0
-                (if (eq *direction-mode* 'local-gpio)
-                    (let ((pin-state (gpio-read *direction-gpio-pin*)))
-                        (if (if *direction-reverse-active-high* (= pin-state 1) (= pin-state 0)) -1.0 1.0))
-                    (if (eq *direction-mode* 'local-adc)
-                        (if (selector-active
-                                (get-adc *direction-adc-channel*)
-                                *direction-adc-threshold-v*
-                                *direction-adc-active-high*)
-                            -1.0
-                            1.0)
-                        (if (eq *direction-mode* 'can-adc)
-                            (if (selector-active
-                                    (canget-adc *input-can-id* *can-direction-adc-channel*)
-                                    *direction-adc-threshold-v*
-                                    *direction-adc-active-high*)
-                                -1.0
-                                1.0)
-                            1.0)))))))
+            (if (read-direction-reverse) -1.0 1.0))))
 
 (defun read-drive-throttle ()
     (let ((axis (read-throttle)))
@@ -615,11 +810,24 @@
         nil
         (if (eq *brake-mode* 'local-gpio)
             (let ((pin-state (gpio-read *brake-gpio-pin*)))
-                (if *brake-active-high* (= pin-state 1) (= pin-state 0)))
+                (debounce-brake
+                    (if *brake-active-high* (= pin-state 1) (= pin-state 0))))
             (if (eq *brake-mode* 'local-adc)
-                (selector-active (get-adc *brake-adc-channel*) *brake-adc-threshold-v* *brake-adc-active-high*)
+                (debounce-brake
+                    (selector-active-hysteresis
+                        (get-adc *brake-adc-channel*)
+                        *brake-adc-threshold-v*
+                        *brake-adc-active-high*
+                        *brake-db-state*
+                        *brake-db-init*))
                 (if (eq *brake-mode* 'can-adc)
-                    (selector-active (canget-adc *input-can-id* *can-brake-adc-channel*) *brake-adc-threshold-v* *brake-adc-active-high*)
+                    (debounce-brake
+                        (selector-active-hysteresis
+                            (canget-adc *input-can-id* *can-brake-adc-channel*)
+                            *brake-adc-threshold-v*
+                            *brake-adc-active-high*
+                            *brake-db-state*
+                            *brake-db-init*))
                     nil)))))
 
 (defun read-cruise-request ()
@@ -627,11 +835,24 @@
         nil
         (if (eq *cruise-mode* 'local-gpio)
             (let ((pin-state (gpio-read *cruise-gpio-pin*)))
-                (if *cruise-active-high* (= pin-state 1) (= pin-state 0)))
+                (debounce-cruise-request
+                    (if *cruise-active-high* (= pin-state 1) (= pin-state 0))))
             (if (eq *cruise-mode* 'local-adc)
-                (selector-active (get-adc *cruise-adc-channel*) *cruise-adc-threshold-v* *cruise-adc-active-high*)
+                (debounce-cruise-request
+                    (selector-active-hysteresis
+                        (get-adc *cruise-adc-channel*)
+                        *cruise-adc-threshold-v*
+                        *cruise-adc-active-high*
+                        *cruise-db-state*
+                        *cruise-db-init*))
                 (if (eq *cruise-mode* 'can-adc)
-                    (selector-active (canget-adc *input-can-id* *can-cruise-adc-channel*) *cruise-adc-threshold-v* *cruise-adc-active-high*)
+                    (debounce-cruise-request
+                        (selector-active-hysteresis
+                            (canget-adc *input-can-id* *can-cruise-adc-channel*)
+                            *cruise-adc-threshold-v*
+                            *cruise-adc-active-high*
+                            *cruise-db-state*
+                            *cruise-db-init*))
                     nil)))))
 
 (defun read-cruise-cancel ()
@@ -639,11 +860,24 @@
         nil
         (if (eq *cruise-cancel-mode* 'local-gpio)
             (let ((pin-state (gpio-read *cruise-cancel-gpio-pin*)))
-                (if *cruise-cancel-active-high* (= pin-state 1) (= pin-state 0)))
+                (debounce-cruise-cancel
+                    (if *cruise-cancel-active-high* (= pin-state 1) (= pin-state 0))))
             (if (eq *cruise-cancel-mode* 'local-adc)
-                (selector-active (get-adc *cruise-cancel-adc-channel*) *cruise-cancel-adc-threshold-v* *cruise-cancel-adc-active-high*)
+                (debounce-cruise-cancel
+                    (selector-active-hysteresis
+                        (get-adc *cruise-cancel-adc-channel*)
+                        *cruise-cancel-adc-threshold-v*
+                        *cruise-cancel-adc-active-high*
+                        *cruise-cancel-db-state*
+                        *cruise-cancel-db-init*))
                 (if (eq *cruise-cancel-mode* 'can-adc)
-                    (selector-active (canget-adc *input-can-id* *can-cruise-cancel-adc-channel*) *cruise-cancel-adc-threshold-v* *cruise-cancel-adc-active-high*)
+                    (debounce-cruise-cancel
+                        (selector-active-hysteresis
+                            (canget-adc *input-can-id* *can-cruise-cancel-adc-channel*)
+                            *cruise-cancel-adc-threshold-v*
+                            *cruise-cancel-adc-active-high*
+                            *cruise-cancel-db-state*
+                            *cruise-cancel-db-init*))
                     nil)))))
 
 (defun cruise-fresh ()
@@ -656,13 +890,26 @@
         t
         (if (eq *enable-mode* 'local-gpio)
             (let ((pin-state (gpio-read *enable-gpio-pin*)))
-                (if *enable-active-high* (= pin-state 1) (= pin-state 0)))
+                (debounce-enable
+                    (if *enable-active-high* (= pin-state 1) (= pin-state 0))))
             (if (eq *enable-mode* 'local-adc)
                 (let ((v (get-adc *enable-adc-channel*)))
-                    (if *enable-adc-active-high* (> v *enable-adc-threshold-v*) (< v *enable-adc-threshold-v*)))
+                    (debounce-enable
+                        (selector-active-hysteresis
+                            v
+                            *enable-adc-threshold-v*
+                            *enable-adc-active-high*
+                            *enable-db-state*
+                            *enable-db-init*)))
                 (if (eq *enable-mode* 'can-adc)
                     (let ((v (canget-adc *input-can-id* *can-enable-adc-channel*)))
-                        (if *enable-adc-active-high* (> v *enable-adc-threshold-v*) (< v *enable-adc-threshold-v*)))
+                        (debounce-enable
+                            (selector-active-hysteresis
+                                v
+                                *enable-adc-threshold-v*
+                                *enable-adc-active-high*
+                                *enable-db-state*
+                                *enable-db-init*)))
                     nil)))))
 
 (defun neutral-inputs (throttle steer)
@@ -873,17 +1120,17 @@
                 (send-drive-command id 0.0)))
         (send-drive-command id 0.0)))
 
-(defun send-wheel (id sign side-command)
+(defun send-wheel (id sign trim side-command)
     (let (
         (side (apply-reverse-scale side-command))
-        (scaled (* side sign *max-command*)))
+        (scaled (* side sign trim *max-command*)))
         (if (< (abs side) *neutral-command-deadband*)
             (send-brake-command id *neutral-brake-command*)
             (send-drive-command id scaled))))
 
-(defun send-active-wheel (active id sign side-command)
+(defun send-active-wheel (active id sign trim side-command)
     (if active
-        (send-wheel id sign side-command)
+        (send-wheel id sign trim side-command)
         nil))
 
 (defun send-active-brake (active id brake)
@@ -893,10 +1140,10 @@
 
 (defun send-all (left right)
     (progn
-        (send-active-wheel (drive-left-front) *left-front-id* *left-front-sign* left)
-        (send-active-wheel (drive-left-rear) *left-rear-id* *left-rear-sign* left)
-        (send-active-wheel (drive-right-front) *right-front-id* *right-front-sign* right)
-        (send-active-wheel (drive-right-rear) *right-rear-id* *right-rear-sign* right)))
+        (send-active-wheel (drive-left-front) *left-front-id* *left-front-sign* *left-front-scale* left)
+        (send-active-wheel (drive-left-rear) *left-rear-id* *left-rear-sign* *left-rear-scale* left)
+        (send-active-wheel (drive-right-front) *right-front-id* *right-front-sign* *right-front-scale* right)
+        (send-active-wheel (drive-right-rear) *right-rear-id* *right-rear-sign* *right-rear-scale* right)))
 
 (defun send-stop ()
     (progn
@@ -1071,6 +1318,317 @@
         (eq *cruise-latch-mode* 'toggle)
         (eq *cruise-latch-mode* 'hold)))
 
+(defun config-check (reason ok)
+    (if ok
+        t
+        (progn
+            (if (eq *config-error* 'none)
+                (setq *config-error* reason)
+                nil)
+            nil)))
+
+(defun unit-range (x)
+    (and (>= x 0.0) (<= x 1.0)))
+
+(defun positive-unit-range (x)
+    (and (> x 0.0) (<= x 1.0)))
+
+(defun trim-range (x)
+    (and (> x 0.0) (<= x 2.0)))
+
+(defun adc-voltage-valid (v)
+    (and (>= v 0.0) (<= v 3.3)))
+
+(defun adc-calibration-valid (lo center hi)
+    (and
+        (adc-voltage-valid lo)
+        (adc-voltage-valid center)
+        (adc-voltage-valid hi)
+        (< lo center)
+        (< center hi)
+        (> (- hi lo) 0.10)))
+
+(defun selector-threshold-valid (threshold)
+    (and
+        (adc-voltage-valid threshold)
+        (> threshold *selector-adc-hysteresis-v*)
+        (< threshold (- 3.3 *selector-adc-hysteresis-v*))))
+
+(defun valid-analog-config ()
+    (and
+        (adc-calibration-valid *throttle-min-v* *throttle-center-v* *throttle-max-v*)
+        (or
+            (not (steering-needed))
+            (adc-calibration-valid *steer-min-v* *steer-center-v* *steer-max-v*))
+        (>= *adc-fault-margin-v* 0.0)
+        (< *adc-fault-margin-v* 1.0)
+        (unit-range *throttle-expo*)
+        (unit-range *steer-expo*)
+        (>= *throttle-deadband* 0.0)
+        (< *throttle-deadband* 1.0)
+        (>= *steer-deadband* 0.0)
+        (< *steer-deadband* 1.0)
+        (< *throttle-deadband* *arm-neutral-throttle*)
+        (or
+            (not (steering-needed))
+            (< *steer-deadband* *arm-neutral-steer*))))
+
+(defun valid-selector-config ()
+    (and
+        (>= *selector-debounce-sec* 0.0)
+        (>= *selector-adc-hysteresis-v* 0.0)
+        (< *selector-adc-hysteresis-v* 1.0)
+        (or (not (eq *direction-mode* 'local-adc)) (selector-threshold-valid *direction-adc-threshold-v*))
+        (or (not (eq *direction-mode* 'can-adc)) (selector-threshold-valid *direction-adc-threshold-v*))
+        (or (not (eq *enable-mode* 'local-adc)) (selector-threshold-valid *enable-adc-threshold-v*))
+        (or (not (eq *enable-mode* 'can-adc)) (selector-threshold-valid *enable-adc-threshold-v*))
+        (or (not (eq *brake-mode* 'local-adc)) (selector-threshold-valid *brake-adc-threshold-v*))
+        (or (not (eq *brake-mode* 'can-adc)) (selector-threshold-valid *brake-adc-threshold-v*))
+        (or (not (eq *cruise-mode* 'local-adc)) (selector-threshold-valid *cruise-adc-threshold-v*))
+        (or (not (eq *cruise-mode* 'can-adc)) (selector-threshold-valid *cruise-adc-threshold-v*))
+        (or (not (eq *cruise-cancel-mode* 'local-adc)) (selector-threshold-valid *cruise-cancel-adc-threshold-v*))
+        (or (not (eq *cruise-cancel-mode* 'can-adc)) (selector-threshold-valid *cruise-cancel-adc-threshold-v*))))
+
+(defun valid-gpio-input-mode (mode)
+    (or
+        (eq mode 'pin-mode-in)
+        (eq mode 'pin-mode-in-pu)
+        (eq mode 'pin-mode-in-pd)))
+
+(defun active-gpio-pin-valid (active pin)
+    (or
+        (not active)
+        (and
+            (>= pin 0)
+            (not (= pin *can-tx-pin*))
+            (not (= pin *can-rx-pin*)))))
+
+(defun active-gpio-pair-free (active-a pin-a active-b pin-b)
+    (or
+        (not active-a)
+        (not active-b)
+        (not (= pin-a pin-b))))
+
+(defun valid-active-gpio-pins ()
+    (let (
+        (enable-gpio (eq *enable-mode* 'local-gpio))
+        (brake-gpio (eq *brake-mode* 'local-gpio))
+        (direction-gpio (eq *direction-mode* 'local-gpio))
+        (cruise-gpio (eq *cruise-mode* 'local-gpio))
+        (cancel-gpio (eq *cruise-cancel-mode* 'local-gpio))
+        (heartbeat-gpio *heartbeat-enable*))
+        (and
+            (active-gpio-pin-valid enable-gpio *enable-gpio-pin*)
+            (active-gpio-pin-valid brake-gpio *brake-gpio-pin*)
+            (active-gpio-pin-valid direction-gpio *direction-gpio-pin*)
+            (active-gpio-pin-valid cruise-gpio *cruise-gpio-pin*)
+            (active-gpio-pin-valid cancel-gpio *cruise-cancel-gpio-pin*)
+            (active-gpio-pin-valid heartbeat-gpio *heartbeat-gpio-pin*)
+            (or (not enable-gpio) (valid-gpio-input-mode *enable-gpio-mode*))
+            (or (not brake-gpio) (valid-gpio-input-mode *brake-gpio-mode*))
+            (or (not direction-gpio) (valid-gpio-input-mode *direction-gpio-mode*))
+            (or (not cruise-gpio) (valid-gpio-input-mode *cruise-gpio-mode*))
+            (or (not cancel-gpio) (valid-gpio-input-mode *cruise-cancel-gpio-mode*))
+            (active-gpio-pair-free enable-gpio *enable-gpio-pin* brake-gpio *brake-gpio-pin*)
+            (active-gpio-pair-free enable-gpio *enable-gpio-pin* direction-gpio *direction-gpio-pin*)
+            (active-gpio-pair-free enable-gpio *enable-gpio-pin* cruise-gpio *cruise-gpio-pin*)
+            (active-gpio-pair-free enable-gpio *enable-gpio-pin* cancel-gpio *cruise-cancel-gpio-pin*)
+            (active-gpio-pair-free enable-gpio *enable-gpio-pin* heartbeat-gpio *heartbeat-gpio-pin*)
+            (active-gpio-pair-free brake-gpio *brake-gpio-pin* direction-gpio *direction-gpio-pin*)
+            (active-gpio-pair-free brake-gpio *brake-gpio-pin* cruise-gpio *cruise-gpio-pin*)
+            (active-gpio-pair-free brake-gpio *brake-gpio-pin* cancel-gpio *cruise-cancel-gpio-pin*)
+            (active-gpio-pair-free brake-gpio *brake-gpio-pin* heartbeat-gpio *heartbeat-gpio-pin*)
+            (active-gpio-pair-free direction-gpio *direction-gpio-pin* cruise-gpio *cruise-gpio-pin*)
+            (active-gpio-pair-free direction-gpio *direction-gpio-pin* cancel-gpio *cruise-cancel-gpio-pin*)
+            (active-gpio-pair-free direction-gpio *direction-gpio-pin* heartbeat-gpio *heartbeat-gpio-pin*)
+            (active-gpio-pair-free cruise-gpio *cruise-gpio-pin* cancel-gpio *cruise-cancel-gpio-pin*)
+            (active-gpio-pair-free cruise-gpio *cruise-gpio-pin* heartbeat-gpio *heartbeat-gpio-pin*)
+            (active-gpio-pair-free cancel-gpio *cruise-cancel-gpio-pin* heartbeat-gpio *heartbeat-gpio-pin*))))
+
+(defun active-adc-channel-valid (active channel)
+    (or (not active) (>= channel 0)))
+
+(defun active-adc-pair-free (active-a channel-a active-b channel-b)
+    (or
+        (not active-a)
+        (not active-b)
+        (not (= channel-a channel-b))))
+
+(defun valid-local-adc-channels ()
+    (let (
+        (throttle-adc (eq *input-mode* 'local-adc))
+        (steer-adc (and (eq *input-mode* 'local-adc) (steering-needed)))
+        (direction-adc (eq *direction-mode* 'local-adc))
+        (enable-adc (eq *enable-mode* 'local-adc))
+        (brake-adc (eq *brake-mode* 'local-adc))
+        (cruise-adc (eq *cruise-mode* 'local-adc))
+        (cancel-adc (eq *cruise-cancel-mode* 'local-adc)))
+        (and
+            (active-adc-channel-valid throttle-adc *throttle-adc-channel*)
+            (active-adc-channel-valid steer-adc *steer-adc-channel*)
+            (active-adc-channel-valid direction-adc *direction-adc-channel*)
+            (active-adc-channel-valid enable-adc *enable-adc-channel*)
+            (active-adc-channel-valid brake-adc *brake-adc-channel*)
+            (active-adc-channel-valid cruise-adc *cruise-adc-channel*)
+            (active-adc-channel-valid cancel-adc *cruise-cancel-adc-channel*)
+            (active-adc-pair-free throttle-adc *throttle-adc-channel* steer-adc *steer-adc-channel*)
+            (active-adc-pair-free throttle-adc *throttle-adc-channel* direction-adc *direction-adc-channel*)
+            (active-adc-pair-free throttle-adc *throttle-adc-channel* enable-adc *enable-adc-channel*)
+            (active-adc-pair-free throttle-adc *throttle-adc-channel* brake-adc *brake-adc-channel*)
+            (active-adc-pair-free throttle-adc *throttle-adc-channel* cruise-adc *cruise-adc-channel*)
+            (active-adc-pair-free throttle-adc *throttle-adc-channel* cancel-adc *cruise-cancel-adc-channel*)
+            (active-adc-pair-free steer-adc *steer-adc-channel* direction-adc *direction-adc-channel*)
+            (active-adc-pair-free steer-adc *steer-adc-channel* enable-adc *enable-adc-channel*)
+            (active-adc-pair-free steer-adc *steer-adc-channel* brake-adc *brake-adc-channel*)
+            (active-adc-pair-free steer-adc *steer-adc-channel* cruise-adc *cruise-adc-channel*)
+            (active-adc-pair-free steer-adc *steer-adc-channel* cancel-adc *cruise-cancel-adc-channel*)
+            (active-adc-pair-free direction-adc *direction-adc-channel* enable-adc *enable-adc-channel*)
+            (active-adc-pair-free direction-adc *direction-adc-channel* brake-adc *brake-adc-channel*)
+            (active-adc-pair-free direction-adc *direction-adc-channel* cruise-adc *cruise-adc-channel*)
+            (active-adc-pair-free direction-adc *direction-adc-channel* cancel-adc *cruise-cancel-adc-channel*)
+            (active-adc-pair-free enable-adc *enable-adc-channel* brake-adc *brake-adc-channel*)
+            (active-adc-pair-free enable-adc *enable-adc-channel* cruise-adc *cruise-adc-channel*)
+            (active-adc-pair-free enable-adc *enable-adc-channel* cancel-adc *cruise-cancel-adc-channel*)
+            (active-adc-pair-free brake-adc *brake-adc-channel* cruise-adc *cruise-adc-channel*)
+            (active-adc-pair-free brake-adc *brake-adc-channel* cancel-adc *cruise-cancel-adc-channel*)
+            (active-adc-pair-free cruise-adc *cruise-adc-channel* cancel-adc *cruise-cancel-adc-channel*))))
+
+(defun valid-can-adc-channels ()
+    (let (
+        (throttle-adc (eq *input-mode* 'can-adc))
+        (steer-adc (and (steering-needed) (or (eq *input-mode* 'can-adc) (eq *input-mode* 'can-ppm))))
+        (direction-adc (eq *direction-mode* 'can-adc))
+        (enable-adc (eq *enable-mode* 'can-adc))
+        (brake-adc (eq *brake-mode* 'can-adc))
+        (cruise-adc (eq *cruise-mode* 'can-adc))
+        (cancel-adc (eq *cruise-cancel-mode* 'can-adc)))
+        (and
+            (active-adc-channel-valid throttle-adc *can-throttle-adc-channel*)
+            (active-adc-channel-valid steer-adc *can-steer-adc-channel*)
+            (active-adc-channel-valid direction-adc *can-direction-adc-channel*)
+            (active-adc-channel-valid enable-adc *can-enable-adc-channel*)
+            (active-adc-channel-valid brake-adc *can-brake-adc-channel*)
+            (active-adc-channel-valid cruise-adc *can-cruise-adc-channel*)
+            (active-adc-channel-valid cancel-adc *can-cruise-cancel-adc-channel*)
+            (active-adc-pair-free throttle-adc *can-throttle-adc-channel* steer-adc *can-steer-adc-channel*)
+            (active-adc-pair-free throttle-adc *can-throttle-adc-channel* direction-adc *can-direction-adc-channel*)
+            (active-adc-pair-free throttle-adc *can-throttle-adc-channel* enable-adc *can-enable-adc-channel*)
+            (active-adc-pair-free throttle-adc *can-throttle-adc-channel* brake-adc *can-brake-adc-channel*)
+            (active-adc-pair-free throttle-adc *can-throttle-adc-channel* cruise-adc *can-cruise-adc-channel*)
+            (active-adc-pair-free throttle-adc *can-throttle-adc-channel* cancel-adc *can-cruise-cancel-adc-channel*)
+            (active-adc-pair-free steer-adc *can-steer-adc-channel* direction-adc *can-direction-adc-channel*)
+            (active-adc-pair-free steer-adc *can-steer-adc-channel* enable-adc *can-enable-adc-channel*)
+            (active-adc-pair-free steer-adc *can-steer-adc-channel* brake-adc *can-brake-adc-channel*)
+            (active-adc-pair-free steer-adc *can-steer-adc-channel* cruise-adc *can-cruise-adc-channel*)
+            (active-adc-pair-free steer-adc *can-steer-adc-channel* cancel-adc *can-cruise-cancel-adc-channel*)
+            (active-adc-pair-free direction-adc *can-direction-adc-channel* enable-adc *can-enable-adc-channel*)
+            (active-adc-pair-free direction-adc *can-direction-adc-channel* brake-adc *can-brake-adc-channel*)
+            (active-adc-pair-free direction-adc *can-direction-adc-channel* cruise-adc *can-cruise-adc-channel*)
+            (active-adc-pair-free direction-adc *can-direction-adc-channel* cancel-adc *can-cruise-cancel-adc-channel*)
+            (active-adc-pair-free enable-adc *can-enable-adc-channel* brake-adc *can-brake-adc-channel*)
+            (active-adc-pair-free enable-adc *can-enable-adc-channel* cruise-adc *can-cruise-adc-channel*)
+            (active-adc-pair-free enable-adc *can-enable-adc-channel* cancel-adc *can-cruise-cancel-adc-channel*)
+            (active-adc-pair-free brake-adc *can-brake-adc-channel* cruise-adc *can-cruise-adc-channel*)
+            (active-adc-pair-free brake-adc *can-brake-adc-channel* cancel-adc *can-cruise-cancel-adc-channel*)
+            (active-adc-pair-free cruise-adc *can-cruise-adc-channel* cancel-adc *can-cruise-cancel-adc-channel*))))
+
+(defun valid-adc-channels ()
+    (and
+        (valid-local-adc-channels)
+        (valid-can-adc-channels)))
+
+(defun active-motor-id-valid (active id)
+    (or (not active) (> id 0)))
+
+(defun active-motor-id-free (active-a id-a active-b id-b)
+    (or
+        (not active-a)
+        (not active-b)
+        (not (= id-a id-b))))
+
+(defun active-motor-ids-valid ()
+    (and
+        (active-motor-id-valid (drive-left-front) *left-front-id*)
+        (active-motor-id-valid (drive-left-rear) *left-rear-id*)
+        (active-motor-id-valid (drive-right-front) *right-front-id*)
+        (active-motor-id-valid (drive-right-rear) *right-rear-id*)
+        (active-motor-id-free (drive-left-front) *left-front-id* (drive-left-rear) *left-rear-id*)
+        (active-motor-id-free (drive-left-front) *left-front-id* (drive-right-front) *right-front-id*)
+        (active-motor-id-free (drive-left-front) *left-front-id* (drive-right-rear) *right-rear-id*)
+        (active-motor-id-free (drive-left-rear) *left-rear-id* (drive-right-front) *right-front-id*)
+        (active-motor-id-free (drive-left-rear) *left-rear-id* (drive-right-rear) *right-rear-id*)
+        (active-motor-id-free (drive-right-front) *right-front-id* (drive-right-rear) *right-rear-id*)))
+
+(defun wheel-trims-valid ()
+    (and
+        (trim-range *left-front-scale*)
+        (trim-range *left-rear-scale*)
+        (trim-range *right-front-scale*)
+        (trim-range *right-rear-scale*)))
+
+(defun can-pins-valid ()
+    (or
+        (and
+            (>= *can-tx-pin* 0)
+            (>= *can-rx-pin* 0)
+            (not (= *can-tx-pin* *can-rx-pin*)))
+        (and
+            (< *can-tx-pin* 0)
+            (< *can-rx-pin* 0))))
+
+(defun relative-command-mode ()
+    (or
+        (eq *control-mode* 'current-rel)
+        (eq *control-mode* 'duty)))
+
+(defun brake-command-range-valid ()
+    (and
+        (>= *neutral-brake-command* 0.0)
+        (>= *disable-brake-command* 0.0)
+        (>= *brake-command* 0.0)
+        (or
+            (not (eq *control-mode* 'current-rel))
+            (and
+                (<= *neutral-brake-command* 1.0)
+                (<= *disable-brake-command* 1.0)
+                (<= *brake-command* 1.0)))))
+
+(defun command-config-valid ()
+    (and
+        (> *max-command* 0.0)
+        (or (not (relative-command-mode)) (<= *max-command* 1.0))
+        (unit-range *reverse-scale*)
+        (>= *throttle-scale* 0.0)
+        (<= *throttle-scale* 2.0)
+        (>= *steer-scale* 0.0)
+        (<= *steer-scale* 2.0)
+        (> *accel-rate-per-sec* 0.0)
+        (> *decel-rate-per-sec* 0.0)
+        (> *reverse-rate-per-sec* 0.0)
+        (> *loop-period-sec* 0.0)
+        (>= *command-off-delay-sec* (* 2.0 *loop-period-sec*))
+        (brake-command-range-valid)
+        (>= *neutral-command-deadband* 0.0)
+        (< *neutral-command-deadband* 1.0)))
+
+(defun timing-config-valid ()
+    (and
+        (>= *arm-neutral-sec* 0.0)
+        (positive-unit-range *arm-neutral-throttle*)
+        (positive-unit-range *arm-neutral-steer*)
+        (> *direction-change-command-threshold* 0.0)
+        (> *loop-overrun-sec* *loop-period-sec*)
+        (> *heartbeat-period-sec* 0.0)
+        (> *status-print-period-sec* 0.0)
+        (or (not *status-led-enable*) (> *status-led-flash-period-sec* 0.0))
+        (> *input-stale-sec* 0.0)
+        (> *motor-status-stale-sec* 0.0)))
+
+(defun monitoring-config-valid ()
+    (and
+        (> *max-fet-temp-c* 0.0)
+        (> *max-motor-temp-c* 0.0)))
+
 (defun status-led-pin-free (pin)
     (and
         (not (= pin *can-tx-pin*))
@@ -1106,6 +1664,32 @@
         (or (not (eq *brake-mode* 'local-gpio)) (>= *brake-gpio-pin* 0))
         (or (not *heartbeat-enable*) (>= *heartbeat-gpio-pin* 0))
         (status-led-pins-valid)))
+
+(defun valid-startup-config ()
+    (progn
+        (setq *config-error* 'none)
+        (and
+            (config-check 'control-mode (valid-control-mode))
+            (config-check 'drive-layout (valid-drive-layout))
+            (config-check 'mix-mode (valid-mix-mode))
+            (config-check 'input-mode (valid-input-mode))
+            (config-check 'direction-mode (valid-direction-mode))
+            (config-check 'enable-mode (valid-enable-mode))
+            (config-check 'brake-mode (valid-brake-mode))
+            (config-check 'cruise-mode (valid-cruise-mode))
+            (config-check 'cruise-cancel-mode (valid-cruise-cancel-mode))
+            (config-check 'cruise-latch-mode (valid-cruise-latch-mode))
+            (config-check 'can-pins (can-pins-valid))
+            (config-check 'motor-can-ids (active-motor-ids-valid))
+            (config-check 'wheel-trims (wheel-trims-valid))
+            (config-check 'analog-calibration (valid-analog-config))
+            (config-check 'selector-config (valid-selector-config))
+            (config-check 'adc-channel-conflict (valid-adc-channels))
+            (config-check 'gpio-pin-conflict (valid-active-gpio-pins))
+            (config-check 'command-config (command-config-valid))
+            (config-check 'timing-config (timing-config-valid))
+            (config-check 'monitoring-config (monitoring-config-valid))
+            (config-check 'safety-config (valid-safety-config)))))
 
 (defun start-can ()
     (progn
@@ -1163,18 +1747,7 @@
 (trap (set-print-prefix "skid| "))
 (trap (set-fw-name *vehicle-name*))
 
-(if (and
-        (valid-control-mode)
-        (valid-drive-layout)
-        (valid-mix-mode)
-        (valid-input-mode)
-        (valid-direction-mode)
-        (valid-enable-mode)
-        (valid-brake-mode)
-        (valid-cruise-mode)
-        (valid-cruise-cancel-mode)
-        (valid-cruise-latch-mode)
-        (valid-safety-config))
+(if (valid-startup-config)
     (progn
         (start-can)
         (setup-enable-input)
@@ -1256,6 +1829,7 @@
                     (sleep *loop-period-sec*))))))
     (progn
         (print (list 'skid-config-error
+                     'reason *config-error*
                      'control *control-mode*
                      'layout *drive-layout*
                      'mix *mix-mode*

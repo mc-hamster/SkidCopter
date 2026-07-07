@@ -87,6 +87,8 @@ The simulation math still uses SI units internally.
 
 Use `Manual` scenario when you want direct control:
 
+- `Sliders`: separate throttle and steering sliders.
+- `Joystick`: a self-centering two-axis control. Drag up/down for throttle and left/right for steering; releasing it returns both axes to neutral.
 - `Throttle`: normalized input from reverse to forward.
 - `Steer`: normalized steering input. Disabled when using `Same power`.
 - `Enable`: simulated enable switch.
@@ -102,6 +104,7 @@ The scenario selector provides repeatable software-side tests:
 - `Manual`: direct live input.
 - `Arm, Ramp, Stop`: neutral arming, forward ramp, release to neutral.
 - `Skid Turn`: forward command with a right steering sweep.
+- `Caster Turn`: low-speed S-turn for caster swivel lag and scrub in two-wheel layouts.
 - `Brake Re-arm`: drive, brake, release, neutral re-arm, and drive again.
 - `ADC Fault`: inject a bad input range while moving.
 
@@ -121,6 +124,9 @@ The vehicle panel includes:
 - `Drive force`: maximum forward/reverse force used by the acceleration limit.
 - `Brake force`: maximum slowing force used when commands drop or reverse.
 - `Tire grip`: available grip in g; lower values trigger skid-steer slip sooner. Editing this value switches the ground selector to `Custom`.
+- `Caster roll drag`: rolling resistance from the unpowered caster pair in two-wheel layouts.
+- `Caster scrub`: extra resistance when caster wheels lag behind the local travel direction.
+- `Caster swivel`: how quickly caster wheels align to the local travel direction.
 - `Accel rate`, `Decel rate`: controller command slew rates, separate from the physical force limits.
 
 Ground presets:
@@ -139,10 +145,10 @@ The current physics model includes:
 - tire-grip limiting
 - skid-steer scrub slip
 - lateral slip and slip-angle telemetry
+- caster rolling drag, swivel lag, scrub drag, and caster telemetry for two-wheel layouts
 
 Still open:
 
-- caster drag
 - calibrated motor response from bench logs
 
 See `TODO.md` for the current fidelity backlog.
@@ -168,8 +174,10 @@ The bottom telemetry area shows:
 - `Cruise`: cruise state.
 - `Logic`: confirms whether the visible controller output is coming from the Lisp source runtime.
 - `Slip`: current tire/slip limit percentage.
+- `Caster`: current caster scrub percentage, or off for four-wheel layouts.
+- `Drag`: current caster drag in pounds-force.
 - `Accel`: forward acceleration in feet per second squared.
-- Chart traces for left command, right command, speed, and slip.
+- Chart traces for left command, right command, speed, slip, and caster scrub.
 - `CAN Out`: simulated VESC CAN command function, wheel, CAN ID, and value.
 
 ## Useful Test Cases
@@ -187,6 +195,13 @@ Brake test:
 1. Select `Brake Re-arm`.
 2. Press `Run`.
 3. Confirm the state changes to brake, drive output stops, then neutral re-arm is required before driving resumes.
+
+Caster drag test:
+
+1. Set `Drive layout` to `Two wheel rear` or `Two wheel front`.
+2. Select `Caster Turn`.
+3. Press `Run`.
+4. Watch the caster wheels swivel, the `Caster` and `Drag` telemetry, and the trail shape.
 
 Fault test:
 
