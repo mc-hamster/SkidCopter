@@ -191,6 +191,18 @@ function createInitialFrame(config, controller, input) {
   };
 }
 
+function activeWheelsForDriveLayout(driveLayout) {
+  const frontPowered = driveLayout === "four-wheel" || driveLayout === "two-wheel-front";
+  const rearPowered = driveLayout === "four-wheel" || driveLayout === "two-wheel-rear";
+
+  return {
+    leftFront: frontPowered,
+    leftRear: rearPowered,
+    rightFront: frontPowered,
+    rightRear: rearPowered,
+  };
+}
+
 function VehicleScene({ config, frame, followCamera }) {
   const mountRef = useRef(null);
   const frameRef = useRef(frame);
@@ -429,7 +441,7 @@ function VehicleScene({ config, frame, followCamera }) {
       modelRef.current = { group, wheels };
     }
 
-    buildVehicleModel(configRef.current, frameRef.current.telemetry.activeWheels);
+    buildVehicleModel(configRef.current, activeWheelsForDriveLayout(configRef.current.driveLayout));
 
     const resize = () => {
       const rect = mount.getBoundingClientRect();
@@ -486,7 +498,10 @@ function VehicleScene({ config, frame, followCamera }) {
 
     animate();
 
-    const rebuild = () => buildVehicleModel(configRef.current, frameRef.current.telemetry.activeWheels);
+    const rebuild = () => buildVehicleModel(
+      configRef.current,
+      activeWheelsForDriveLayout(configRef.current.driveLayout)
+    );
     mount.__rebuildVehicle = rebuild;
     mount.__setGroundSurface = applyGroundSurface;
 
@@ -1207,28 +1222,7 @@ function App() {
 
   useEffect(() => {
     resetSimulation();
-  }, [
-    config.driveLayout,
-    config.mixMode,
-    config.controlMode,
-    config.inputMode,
-    config.directionMode,
-    config.enableMode,
-    config.brakeMode,
-    config.cruiseMode,
-    config.cruiseCancelMode,
-    config.cruiseLatchMode,
-    config.statusLedActiveHigh,
-    config.wheelDiameterM,
-    config.trackWidthM,
-    config.wheelbaseM,
-    config.massKg,
-    config.maxSpeedMps,
-    config.driveForceN,
-    config.brakeForceN,
-    config.tireFrictionG,
-    resetSimulation,
-  ]);
+  }, [config, resetSimulation]);
 
   const speedOptions = useMemo(
     () => [
