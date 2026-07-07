@@ -237,6 +237,14 @@ Then open:
 http://127.0.0.1:5173/
 ```
 
+To package the simulator for the static site at `https://www.casler.org/skidcopter`, run:
+
+```sh
+make simulator-zip
+```
+
+This creates `simulator/skidcopter-static.zip`, which should be unarchived directly into the host directory served as `/skidcopter`. See [simulator/README.md](simulator/README.md) for details.
+
 ## Basic Setup Flow
 
 1. Wire the VESC Express, CAN transceiver, driven VESC motor controllers, controls, enable switch, and optional brake input. See [docs/wiring-esp32-s3.md](docs/wiring-esp32-s3.md).

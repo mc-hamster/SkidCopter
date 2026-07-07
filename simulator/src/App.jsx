@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  CircleSlash,
   CircleStop,
   Gauge,
   Pause,
@@ -32,6 +33,15 @@ const TEST_PAD_SIZE_FT = 800;
 const TEST_PAD_SIZE_M = TEST_PAD_SIZE_FT * FT_TO_M;
 const GROUND_TEXTURE_SIZE = 512;
 const GROUND_TEXTURE_REPEAT = 9 * (TEST_PAD_SIZE_FT / 160);
+const SIM_SHORTCUTS = {
+  enable: "E",
+  brake: "B",
+  cruise: "C",
+  adcFault: "1",
+  thermalFault: "2",
+  motorStatusStale: "3",
+  staleCan: "4",
+};
 
 function formatNumber(value, digits = 2) {
   if (!Number.isFinite(value)) {
@@ -70,6 +80,11 @@ function classNames(...parts) {
 
 function clampNumber(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function isTextEditingElement(target) {
+  const tagName = target?.tagName?.toLowerCase();
+  return target?.isContentEditable || tagName === "input" || tagName === "select" || tagName === "textarea";
 }
 
 function createSeededRandom(seedText) {
@@ -667,15 +682,26 @@ function SliderField({ label, value, min = -1, max = 1, step = 0.01, onChange, d
   );
 }
 
-function ToggleButton({ active, onClick, children, tone = "default", disabled }) {
+function ToggleButton({ active, onClick, children, tone = "default", disabled, disabledReason, shortcut }) {
+  const title = disabled ? disabledReason : shortcut ? `Shortcut: ${shortcut}` : undefined;
+
   return (
     <button
       type="button"
       className={classNames("toggle-button", active && "active", tone)}
       onClick={onClick}
       disabled={disabled}
+      title={title}
+      aria-keyshortcuts={!disabled && shortcut ? shortcut : undefined}
     >
-      {children}
+      <span className="toggle-button-main">{children}</span>
+      {disabled ? (
+        <CircleSlash className="toggle-button-unavailable" size={13} aria-hidden="true" />
+      ) : shortcut ? (
+        <kbd className="shortcut-key" aria-hidden="true">
+          {shortcut}
+        </kbd>
+      ) : null}
     </button>
   );
 }
@@ -1037,17 +1063,78 @@ function SelfCenteringJoystick({ throttle, steer, onChange, disabled, steerLocke
 }
 
 function ControlsPanel({ playback, setPlayback, manualInput, setManualInput, liveInput, frame, config, setConfig }) {
-  const [manualControlMode, setManualControlMode] = useState("sliders");
+  const [manualControlMode, setManualControlMode] = useState("joystick");
   const scenario = getScenario(playback.scenario);
   const scenarioDriven = playback.scenario !== "manual";
   const visibleInput = scenarioDriven ? liveInput : manualInput;
-  const patchInput = (patch) => setManualInput((current) => ({ ...current, ...patch }));
-  const selectManualControlMode = (nextMode) => {
-    setManualControlMode(nextMode);
-    if (nextMode === "joystick" && !scenarioDriven) {
-      patchInput({ throttle: 0, steer: 0 });
-    }
-  };
+  const patchInput = useCallback(
+    (patch) => setManualInput((current) => ({ ...current, ...patch })),
+    [setManualInput]
+  );
+  const toggleManualInput = useCallback(
+    (key) => setManualInput((current) => ({ ...current, [key]: !current[key] })),
+    [setManualInput]
+  );
+  const selectManualControlMode = useCallback(
+    (nextMode) => {
+      setManualControlMode(nextMode);
+      if (nextMode === "joystick" && !scenarioDriven) {
+        patchInput({ throttle: 0, steer: 0 });
+      }
+    },
+    [patchInput, scenarioDriven]
+  );
+  const scenarioDisabledReason = "Scenario playback is controlling this input";
+  const enableDisabledReason = scenarioDriven ? scenarioDisabledReason : "Enable mode is Always";
+  const brakeDisabledReason = scenarioDriven ? scenarioDisabledReason : "Brake mode is Off";
+  const cruiseDisabledReason = scenarioDriven ? scenarioDisabledReason : "Cruise mode is Off";
+  const enableUsable = !scenarioDriven && config.enableMode !== "always";
+  const brakeUsable = !scenarioDriven && config.brakeMode !== "off";
+  const cruiseUsable = !scenarioDriven && config.cruiseMode !== "off";
+  const faultInjectorsUsable = !scenarioDriven;
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (
+        event.repeat ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        isTextEditingElement(event.target)
+      ) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      const toggleIfUsable = (usable, inputKey) => {
+        if (!usable) {
+          return false;
+        }
+        event.preventDefault();
+        toggleManualInput(inputKey);
+        return true;
+      };
+
+      if (key === SIM_SHORTCUTS.enable.toLowerCase()) {
+        toggleIfUsable(enableUsable, "enable");
+      } else if (key === SIM_SHORTCUTS.brake.toLowerCase()) {
+        toggleIfUsable(brakeUsable, "brake");
+      } else if (key === SIM_SHORTCUTS.cruise.toLowerCase()) {
+        toggleIfUsable(cruiseUsable, "cruiseRequest");
+      } else if (key === SIM_SHORTCUTS.adcFault) {
+        toggleIfUsable(faultInjectorsUsable, "adcFault");
+      } else if (key === SIM_SHORTCUTS.thermalFault) {
+        toggleIfUsable(faultInjectorsUsable, "thermalFault");
+      } else if (key === SIM_SHORTCUTS.motorStatusStale) {
+        toggleIfUsable(faultInjectorsUsable, "motorStatusStale");
+      } else if (key === SIM_SHORTCUTS.staleCan) {
+        toggleIfUsable(faultInjectorsUsable, "staleCan");
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [brakeUsable, cruiseUsable, enableUsable, faultInjectorsUsable, toggleManualInput]);
 
   return (
     <aside className="side-panel right-panel">
@@ -1110,36 +1197,35 @@ function ControlsPanel({ playback, setPlayback, manualInput, setManualInput, liv
         <div className="button-grid">
           <ToggleButton
             active={visibleInput.enable}
-            onClick={() => patchInput({ enable: !manualInput.enable })}
+            onClick={() => toggleManualInput("enable")}
             tone="enable"
-            disabled={scenarioDriven}
+            disabled={!enableUsable}
+            disabledReason={enableDisabledReason}
+            shortcut={SIM_SHORTCUTS.enable}
           >
             Enable
           </ToggleButton>
           <ToggleButton
             active={visibleInput.brake}
-            onClick={() => patchInput({ brake: !manualInput.brake })}
+            onClick={() => toggleManualInput("brake")}
             tone="brake"
-            disabled={scenarioDriven}
+            disabled={!brakeUsable}
+            disabledReason={brakeDisabledReason}
+            shortcut={SIM_SHORTCUTS.brake}
           >
             <CircleStop size={14} />
             Brake
           </ToggleButton>
         </div>
-        <div className="button-grid">
+        <div className="button-grid single">
           <ToggleButton
             active={visibleInput.cruiseRequest}
-            onClick={() => patchInput({ cruiseRequest: !manualInput.cruiseRequest })}
-            disabled={scenarioDriven || config.cruiseMode === "off"}
+            onClick={() => toggleManualInput("cruiseRequest")}
+            disabled={!cruiseUsable}
+            disabledReason={cruiseDisabledReason}
+            shortcut={SIM_SHORTCUTS.cruise}
           >
             Cruise
-          </ToggleButton>
-          <ToggleButton
-            active={visibleInput.cruiseCancel}
-            onClick={() => patchInput({ cruiseCancel: !manualInput.cruiseCancel })}
-            disabled={scenarioDriven || config.cruiseMode === "off"}
-          >
-            Cancel
           </ToggleButton>
         </div>
       </div>
@@ -1190,33 +1276,41 @@ function ControlsPanel({ playback, setPlayback, manualInput, setManualInput, liv
         <div className="button-grid">
           <ToggleButton
             active={visibleInput.adcFault}
-            onClick={() => patchInput({ adcFault: !manualInput.adcFault })}
+            onClick={() => toggleManualInput("adcFault")}
             tone="fault"
-            disabled={scenarioDriven}
+            disabled={!faultInjectorsUsable}
+            disabledReason={scenarioDisabledReason}
+            shortcut={SIM_SHORTCUTS.adcFault}
           >
             ADC
           </ToggleButton>
           <ToggleButton
             active={visibleInput.thermalFault}
-            onClick={() => patchInput({ thermalFault: !manualInput.thermalFault })}
+            onClick={() => toggleManualInput("thermalFault")}
             tone="fault"
-            disabled={scenarioDriven}
+            disabled={!faultInjectorsUsable}
+            disabledReason={scenarioDisabledReason}
+            shortcut={SIM_SHORTCUTS.thermalFault}
           >
             Thermal
           </ToggleButton>
           <ToggleButton
             active={visibleInput.motorStatusStale}
-            onClick={() => patchInput({ motorStatusStale: !manualInput.motorStatusStale })}
+            onClick={() => toggleManualInput("motorStatusStale")}
             tone="fault"
-            disabled={scenarioDriven}
+            disabled={!faultInjectorsUsable}
+            disabledReason={scenarioDisabledReason}
+            shortcut={SIM_SHORTCUTS.motorStatusStale}
           >
             Motor stale
           </ToggleButton>
           <ToggleButton
             active={visibleInput.staleCan}
-            onClick={() => patchInput({ staleCan: !manualInput.staleCan })}
+            onClick={() => toggleManualInput("staleCan")}
             tone="fault"
-            disabled={scenarioDriven}
+            disabled={!faultInjectorsUsable}
+            disabledReason={scenarioDisabledReason}
+            shortcut={SIM_SHORTCUTS.staleCan}
           >
             CAN stale
           </ToggleButton>

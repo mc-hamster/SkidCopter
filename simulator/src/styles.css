@@ -422,6 +422,10 @@ input[type="range"] {
   margin-top: 7px;
 }
 
+.button-grid.single {
+  grid-template-columns: 1fr;
+}
+
 .panel-section-status {
   margin-top: 9px;
 }
@@ -429,10 +433,46 @@ input[type="range"] {
 .toggle-button {
   width: 100%;
   color: #d7e2e8;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.toggle-button-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.shortcut-key,
+.toggle-button-unavailable {
+  flex: 0 0 auto;
+}
+
+.shortcut-key {
+  min-width: 20px;
+  min-height: 20px;
+  border: 1px solid rgba(143, 160, 172, 0.28);
+  border-radius: 4px;
+  color: var(--muted);
+  background: rgba(11, 16, 22, 0.86);
+  display: inline-grid;
+  place-items: center;
+  padding: 0 5px;
+  font-size: 0.68rem;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.toggle-button-unavailable {
+  color: var(--amber);
+  opacity: 0.95;
 }
 
 .transport .toggle-button {
   width: auto;
+  justify-content: center;
 }
 
 .toggle-button.active {

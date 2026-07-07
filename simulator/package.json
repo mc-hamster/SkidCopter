@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
+    "build:skidcopter": "vite build --base=/skidcopter/ && rm -f skidcopter-static.zip && cd dist && zip -qr ../skidcopter-static.zip .",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

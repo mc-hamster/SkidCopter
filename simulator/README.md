@@ -49,6 +49,35 @@ npm audit --audit-level=moderate
 
 The app is built with Vite, React, and Three.js.
 
+## Static Hosting Package
+
+To build a zip for `https://www.casler.org/skidcopter`, run this from the repository root:
+
+```sh
+make simulator-zip
+```
+
+Or run the same package build from this directory:
+
+```sh
+npm run build:skidcopter
+```
+
+The command builds the simulator with Vite's asset base set to `/skidcopter/` and writes:
+
+```text
+simulator/skidcopter-static.zip
+```
+
+Unarchive that zip directly into the static host directory served as `/skidcopter`. The archive contents are rooted at that directory:
+
+```text
+index.html
+assets/
+```
+
+Do not unzip it one level above `skidcopter`, because the generated `index.html` references assets under `/skidcopter/assets/`.
+
 ## Main Screen
 
 The simulator has four main areas:
@@ -91,9 +120,10 @@ Use `Manual` scenario when you want direct control:
 - `Joystick`: a self-centering two-axis control. Drag up/down for throttle and left/right for steering; releasing it returns both axes to neutral.
 - `Throttle`: normalized input from reverse to forward.
 - `Steer`: normalized steering input. Disabled when using `Same power`.
-- `Enable`: simulated enable switch.
-- `Brake`: simulated operator brake input. The simulator starts with `Brake mode` set to `Local GPIO` so the button and brake scenario work immediately; switch it to `Off` when testing a configuration with no dedicated brake input.
-- `Cruise` and `Cancel`: available when cruise mode is enabled.
+- `Enable` (`E`): simulated enable switch. Disabled when `Enable mode` is `Always`.
+- `Brake` (`B`): simulated operator brake input. The simulator starts with `Brake mode` set to `Local GPIO` so the button and brake scenario work immediately; switch it to `Off` when testing a configuration with no dedicated brake input.
+- `Cruise` (`C`): simulated cruise request. Available when cruise mode is enabled.
+- Fault injectors use `1` for ADC, `2` for Thermal, `3` for Motor stale, and `4` for CAN stale.
 
 The Lisp script still requires neutral arming when `*require-neutral-on-enable*` is enabled. If the vehicle does not drive immediately, return throttle and steering to neutral, make sure the configured enable mode is active, and wait for the arming delay.
 
