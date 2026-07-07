@@ -52,7 +52,7 @@ select {
 }
 
 button {
-  min-height: 34px;
+  min-height: 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
@@ -61,7 +61,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 0 11px;
+  padding: 0 10px;
   cursor: pointer;
   transition:
     border-color 140ms ease,
@@ -88,12 +88,12 @@ button:disabled {
 select,
 input[type="number"] {
   width: 100%;
-  min-height: 34px;
+  min-height: 32px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
   background: #0b1016;
-  padding: 0 9px;
+  padding: 0 8px;
   outline: none;
 }
 
@@ -109,7 +109,7 @@ input[type="range"] {
 
 .app {
   display: grid;
-  grid-template-rows: 62px minmax(0, 1fr) 184px;
+  grid-template-rows: 59px minmax(0, 1fr) 175px;
   height: 100%;
   min-width: 1040px;
   background:
@@ -122,7 +122,7 @@ input[type="range"] {
   align-items: center;
   justify-content: space-between;
   gap: 20px;
-  padding: 10px 16px;
+  padding: 9px 15px;
   border-bottom: 1px solid var(--border);
   background: rgba(9, 13, 18, 0.94);
 }
@@ -135,8 +135,8 @@ input[type="range"] {
 }
 
 .brand-mark {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius);
   border: 1px solid rgba(67, 217, 255, 0.45);
   display: grid;
@@ -149,14 +149,14 @@ input[type="range"] {
 
 .brand h1 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1rem;
   line-height: 1.1;
   font-weight: 760;
 }
 
 .brand span {
   display: block;
-  margin-top: 3px;
+  margin-top: 2px;
   color: var(--muted);
   font-size: 0.78rem;
 }
@@ -197,6 +197,7 @@ input[type="range"] {
   display: grid;
   grid-template-columns: 310px minmax(420px, 1fr) 304px;
   min-height: 0;
+  overflow: hidden;
 }
 
 .side-panel,
@@ -206,8 +207,10 @@ input[type="range"] {
 }
 
 .side-panel {
+  min-height: 0;
+  max-height: 100%;
   overflow: auto;
-  padding: 14px;
+  padding: 13px;
 }
 
 .left-panel {
@@ -232,12 +235,12 @@ input[type="range"] {
 }
 
 .panel-section {
-  padding: 13px 0;
+  padding: 12px 0;
   border-top: 1px solid rgba(34, 48, 59, 0.72);
 }
 
 .panel-heading + .panel-section {
-  margin-top: 12px;
+  margin-top: 11px;
 }
 
 .grid-two {
@@ -252,8 +255,8 @@ input[type="range"] {
 
 .field {
   display: grid;
-  gap: 7px;
-  margin-bottom: 11px;
+  gap: 6px;
+  margin-bottom: 10px;
 }
 
 .field:last-child {
@@ -283,7 +286,7 @@ input[type="range"] {
 
 .number-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
+  grid-template-columns: minmax(0, 1fr) 34px;
   gap: 6px;
   align-items: center;
 }
@@ -295,11 +298,11 @@ input[type="range"] {
 }
 
 .segmented-control {
-  min-height: 34px;
+  min-height: 32px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
-  margin-bottom: 12px;
+  margin-bottom: 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
@@ -307,7 +310,7 @@ input[type="range"] {
 }
 
 .segmented-control button {
-  min-height: 32px;
+  min-height: 30px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -328,14 +331,14 @@ input[type="range"] {
 .joystick-control {
   display: grid;
   justify-items: center;
-  gap: 10px;
-  margin-bottom: 11px;
+  gap: 9px;
+  margin-bottom: 10px;
 }
 
 .joystick-pad {
   position: relative;
-  width: 148px;
-  height: 148px;
+  width: 141px;
+  height: 141px;
   border: 1px solid rgba(67, 217, 255, 0.28);
   border-radius: 50%;
   background:
@@ -415,12 +418,12 @@ input[type="range"] {
 .button-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 7px;
+  margin-top: 7px;
 }
 
 .panel-section-status {
-  margin-top: 10px;
+  margin-top: 9px;
 }
 
 .toggle-button {
@@ -452,8 +455,8 @@ input[type="range"] {
 }
 
 .scenario-description {
-  margin: 9px 0 0;
-  min-height: 34px;
+  margin: 8px 0 0;
+  min-height: 32px;
   color: var(--muted);
   font-size: 0.78rem;
 }
@@ -465,7 +468,7 @@ input[type="range"] {
 
 .compact-readout {
   display: grid;
-  gap: 6px;
+  gap: 5px;
   color: var(--muted);
   font-size: 0.76rem;
 }
@@ -473,14 +476,14 @@ input[type="range"] {
 .center-stage {
   min-width: 0;
   min-height: 0;
-  padding: 12px;
+  padding: 11px;
 }
 
 .scene-shell {
   position: relative;
   width: 100%;
   height: 100%;
-  min-height: 360px;
+  min-height: 342px;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -510,19 +513,19 @@ input[type="range"] {
 }
 
 .scene-overlay-top {
-  top: 12px;
+  top: 11px;
 }
 
 .scene-overlay-top > div:first-child {
   min-width: 184px;
   border: 1px solid rgba(67, 217, 255, 0.2);
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 5px 8px;
   background: rgba(6, 10, 14, 0.72);
 }
 
 .scene-overlay-bottom {
-  bottom: 12px;
+  bottom: 11px;
   justify-content: flex-start;
 }
 
@@ -546,7 +549,7 @@ input[type="range"] {
 
 .scene-readouts {
   display: flex;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
@@ -555,27 +558,27 @@ input[type="range"] {
 .scene-overlay-bottom span {
   border: 1px solid rgba(67, 217, 255, 0.22);
   border-radius: var(--radius);
-  padding: 5px 8px;
+  padding: 4px 7px;
   background: rgba(6, 10, 14, 0.7);
 }
 
 .status-lights {
-  min-height: 34px;
+  min-height: 32px;
   display: inline-grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
   gap: 7px;
   border: 1px solid rgba(34, 48, 59, 0.88);
   border-radius: var(--radius);
-  padding: 5px 8px;
+  padding: 4px 7px;
   background: #0b1016;
 }
 
 .status-lights.compact {
-  min-height: 28px;
+  min-height: 27px;
   width: auto;
   display: inline-flex;
-  padding: 5px 7px;
+  padding: 4px 6px;
   background: rgba(6, 10, 14, 0.7);
 }
 
@@ -645,34 +648,34 @@ input[type="range"] {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border-top: 1px solid var(--border);
-  padding: 12px 16px;
+  padding: 10px 15px;
 }
 
 .telemetry-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
+  gap: 13px;
 }
 
 .status-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   flex-wrap: wrap;
   justify-content: flex-end;
 }
 
 .status-chip {
   min-width: 92px;
-  height: 34px;
+  height: 32px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 0 9px;
+  padding: 0 8px;
   background: #0b1016;
   font-size: 0.75rem;
 }
@@ -720,8 +723,8 @@ input[type="range"] {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 430px;
-  gap: 14px;
-  margin-top: 10px;
+  gap: 13px;
+  margin-top: 7px;
 }
 
 .chart-wrap {
@@ -731,13 +734,13 @@ input[type="range"] {
 
 .telemetry-chart {
   width: 100%;
-  height: 108px;
+  height: 88px;
   display: block;
   border: 1px solid rgba(34, 48, 59, 0.78);
   border-radius: var(--radius);
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px) 0 0 / 48px 100%,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 100% 27px,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 100% 22px,
     #090e14;
 }
 
@@ -773,8 +776,8 @@ input[type="range"] {
 
 .chart-legend {
   display: flex;
-  gap: 14px;
-  margin-top: 7px;
+  gap: 13px;
+  margin-top: 5px;
   color: var(--muted);
   font-size: 0.74rem;
 }
@@ -804,7 +807,7 @@ input[type="range"] {
 }
 
 .can-panel h3 {
-  margin: 0 0 7px;
+  margin: 0 0 4px;
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 760;
@@ -812,18 +815,18 @@ input[type="range"] {
 
 .can-list {
   display: grid;
-  gap: 5px;
+  gap: 3px;
 }
 
 .can-row {
-  min-height: 25px;
+  min-height: 21px;
   display: grid;
   grid-template-columns: 34px 76px minmax(0, 1fr) 64px;
   align-items: center;
   gap: 8px;
   border: 1px solid rgba(34, 48, 59, 0.72);
   border-radius: var(--radius);
-  padding: 0 8px;
+  padding: 0 7px;
   color: #d7e3e9;
   background: #0b1016;
   font-size: 0.72rem;

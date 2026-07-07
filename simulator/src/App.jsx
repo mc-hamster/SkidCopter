@@ -1019,7 +1019,7 @@ function SelfCenteringJoystick({ throttle, steer, onChange, disabled, steerLocke
         <span
           className="joystick-thumb"
           style={{
-            transform: `translate(${displaySteer * 54}px, ${-throttle * 54}px)`,
+            transform: `translate(${displaySteer * 51}px, ${-throttle * 51}px)`,
           }}
           aria-hidden="true"
         />

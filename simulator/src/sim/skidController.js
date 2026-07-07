@@ -51,6 +51,7 @@ export const defaultVehicleConfig = {
   cruiseMode: def("*cruise-mode*", "off"),
   cruiseCancelMode: def("*cruise-cancel-mode*", "off"),
   cruiseLatchMode: def("*cruise-latch-mode*", "toggle"),
+  heartbeatMode: def("*heartbeat-mode*", "safe-to-drive"),
   wheelDiameterM: 0.52,
   trackWidthM: 1.28,
   wheelbaseM: 1.72,
@@ -67,6 +68,9 @@ export const defaultVehicleConfig = {
   reverseScale: def("*reverse-scale*", 0.6),
   throttleScale: def("*throttle-scale*", 1),
   steerScale: def("*steer-scale*", 1),
+  steerDerateEnable: def("*steer-derate-enable*", true),
+  steerDerateStartCommand: def("*steer-derate-start-command*", 0.4),
+  steerDerateMinScale: def("*steer-derate-min-scale*", 0.5),
   accelRatePerSec: def("*accel-rate-per-sec*", 1),
   decelRatePerSec: def("*decel-rate-per-sec*", 2.5),
   reverseRatePerSec: def("*reverse-rate-per-sec*", 1),
@@ -100,6 +104,8 @@ export const defaultVehicleConfig = {
   enableThermalStop: def("*enable-thermal-stop*", false),
   maxFetTempC: def("*max-fet-temp-c*", 80),
   maxMotorTempC: def("*max-motor-temp-c*", 90),
+  heartbeatEnable: def("*heartbeat-enable*", false),
+  heartbeatPeriodSec: def("*heartbeat-period-sec*", 0.5),
   statusLedEnable: def("*status-led-enable*", true),
   statusReadyLedPin: def("*status-ready-led-pin*", 11),
   statusInhibitLedPin: def("*status-inhibit-led-pin*", 12),
@@ -114,6 +120,10 @@ export const defaultVehicleConfig = {
   leftRearSign: def("*left-rear-sign*", 1),
   rightFrontSign: def("*right-front-sign*", 1),
   rightRearSign: def("*right-rear-sign*", 1),
+  leftFrontScale: def("*left-front-scale*", 1),
+  leftRearScale: def("*left-rear-scale*", 1),
+  rightFrontScale: def("*right-front-scale*", 1),
+  rightRearScale: def("*right-rear-scale*", 1),
 };
 
 export const defaultControlInput = {
@@ -169,9 +179,12 @@ function normalizeCommands(runtime, commands) {
   }));
 }
 
-function faultReason(runtime) {
-  const reason = runtime.getValue("*fault-reason*");
+function faultReasonFromValue(reason) {
   return symbolName(reason) || "none";
+}
+
+function faultReason(runtime) {
+  return faultReasonFromValue(runtime.getValue("*fault-reason*"));
 }
 
 function statusLights(runtime, gpioWrites) {
@@ -235,15 +248,13 @@ export class SkidController {
       steerVoltage: runtime.getNumber("*sample-steer-v*"),
       directionOk: runtime.getBoolean("*sample-direction-ok*"),
       directionSign: runtime.getNumber("*sample-direction-sign*"),
+      directionRawSign: runtime.getNumber("*sample-direction-raw-sign*"),
+      inputFault: faultReasonFromValue(runtime.getValue("*sample-input-fault*")),
+      steerDerate: runtime.getNumber("*sample-steer-derate*"),
     };
-    const enabled = lispBool(readOptional(runtime, [lispSymbol("read-enable")], false));
-    const brakeActive = lispBool(readOptional(runtime, [lispSymbol("read-brake")], false));
-    const safe =
-      sample.inputOk &&
-      sample.directionOk &&
-      enabled &&
-      !runtime.getBoolean("*direction-lock*") &&
-      !runtime.getBoolean("*fault-latched*");
+    const enabled = runtime.getBoolean("*sample-enabled*");
+    const brakeActive = runtime.getBoolean("*sample-brake-active*");
+    const safe = runtime.getBoolean("*sample-safe*");
     const cruiseActive = runtime.getBoolean("*cruise-active*");
     const throttle = cruiseActive ? runtime.getNumber("*cruise-command*") : sample.driveThrottle;
 

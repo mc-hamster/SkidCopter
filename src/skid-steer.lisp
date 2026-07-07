@@ -234,6 +234,12 @@
 (def *throttle-scale* 1.0)
 (def *steer-scale* 1.0)
 
+; Reduce steering authority as throttle command rises. This is command-based,
+; not speed-based, but it avoids full skid-steer authority at high drive input.
+(def *steer-derate-enable* t)
+(def *steer-derate-start-command* 0.40)
+(def *steer-derate-min-scale* 0.50)
+
 ; Normalized command slew rates per second.
 (def *accel-rate-per-sec* 1.00)
 (def *decel-rate-per-sec* 2.50)
@@ -266,7 +272,13 @@
 
 ; Optional heartbeat output for an external safety relay or safety controller.
 ; Leave disabled unless the GPIO is wired and monitored externally.
+; Modes:
+;   'alive         - toggles whenever the script loop is running.
+;   'no-fault      - toggles only when no fault is latched.
+;   'safe-to-drive - toggles only when runtime interlocks are satisfied.
+;   'armed-only    - toggles only after the controller is armed.
 (def *heartbeat-enable* nil)
+(def *heartbeat-mode* 'safe-to-drive)
 (def *heartbeat-gpio-pin* 15)
 (def *heartbeat-period-sec* 0.50)
 
@@ -334,13 +346,21 @@
 (def *can6-fresh* t)
 (def *can6-age* 0.0)
 (def *sample-input-ok* nil)
+(def *sample-input-fault* 'none)
 (def *sample-direction-ok* t)
 (def *sample-throttle* 0.0)
 (def *sample-steer* 0.0)
 (def *sample-direction-sign* 1.0)
+(def *sample-direction-raw-sign* 1.0)
 (def *sample-drive-throttle* 0.0)
 (def *sample-throttle-v* 0.0)
 (def *sample-steer-v* 0.0)
+(def *sample-enabled* nil)
+(def *sample-brake-active* nil)
+(def *sample-safe* nil)
+(def *sample-motor-fault* 'none)
+(def *sample-thermal-fault* 'none)
+(def *sample-steer-derate* 1.0)
 (def *mix-left* 0.0)
 (def *mix-right* 0.0)
 (def *mix-magnitude* 0.0)
@@ -389,6 +409,9 @@
 (defun steering-needed ()
     (eq *mix-mode* 'skid-steer))
 
+(defun fault-or (reason fallback)
+    (if (eq reason 'none) fallback reason))
+
 (defun drive-left-front ()
     (or (eq *drive-layout* 'four-wheel) (eq *drive-layout* 'two-wheel-front)))
 
@@ -418,6 +441,19 @@
             (if (< delta (- 0.0 step))
                 (- current step)
                 target))))
+
+(defun steer-derate-scale (throttle)
+    (if (or (not *steer-derate-enable*) (not (steering-needed)))
+        1.0
+        (let (
+            (span (- 1.0 *steer-derate-start-command*))
+            (ramp 0.0))
+            (progn
+                (setq ramp
+                    (if (> span 0.01)
+                        (clamp (/ (- (abs throttle) *steer-derate-start-command*) span) 0.0 1.0)
+                        1.0))
+                (- 1.0 (* ramp (- 1.0 *steer-derate-min-scale*)))))))
 
 ; ----------------------------
 ; Input and arming
@@ -471,6 +507,24 @@
             (if current
                 (< value (+ threshold *selector-adc-hysteresis-v*))
                 (< value (- threshold *selector-adc-hysteresis-v*))))))
+
+(defun selector-active-safe-inactive (value threshold active-high current init)
+    (if (not init)
+        (selector-active value threshold active-high)
+        (if current
+            (selector-active value threshold active-high)
+            (if active-high
+                (> value (+ threshold *selector-adc-hysteresis-v*))
+                (< value (- threshold *selector-adc-hysteresis-v*))))))
+
+(defun selector-active-safe-active (value threshold active-high current init)
+    (if (not init)
+        (selector-active value threshold active-high)
+        (if current
+            (if active-high
+                (> value (- threshold *selector-adc-hysteresis-v*))
+                (< value (+ threshold *selector-adc-hysteresis-v*)))
+            (selector-active value threshold active-high))))
 
 (defun debounce-enable (raw)
     (if (or (not (> *selector-debounce-sec* 0.0)) (not raw))
@@ -656,12 +710,39 @@
                         *direction-db-init*))
                 nil))))
 
+(defun read-direction-reverse-raw ()
+    (if (eq *direction-mode* 'local-gpio)
+        (let ((pin-state (gpio-read *direction-gpio-pin*)))
+            (if *direction-reverse-active-high* (= pin-state 1) (= pin-state 0)))
+        (if (eq *direction-mode* 'local-adc)
+            (selector-active-hysteresis
+                (get-adc *direction-adc-channel*)
+                *direction-adc-threshold-v*
+                *direction-adc-active-high*
+                *direction-db-state*
+                *direction-db-init*)
+            (if (eq *direction-mode* 'can-adc)
+                (selector-active-hysteresis
+                    (canget-adc *input-can-id* *can-direction-adc-channel*)
+                    *direction-adc-threshold-v*
+                    *direction-adc-active-high*
+                    *direction-db-state*
+                    *direction-db-init*)
+                nil))))
+
 (defun read-direction-sign ()
     (if (eq *direction-mode* 'fixed-reverse)
         -1.0
         (if (or (eq *direction-mode* 'throttle-axis) (eq *direction-mode* 'fixed-forward))
             1.0
             (if (read-direction-reverse) -1.0 1.0))))
+
+(defun read-direction-sign-raw ()
+    (if (eq *direction-mode* 'fixed-reverse)
+        -1.0
+        (if (or (eq *direction-mode* 'throttle-axis) (eq *direction-mode* 'fixed-forward))
+            1.0
+            (if (read-direction-reverse-raw) -1.0 1.0))))
 
 (defun read-drive-throttle ()
     (let ((axis (read-throttle)))
@@ -683,6 +764,7 @@
 (defun sample-control-inputs ()
     (progn
         (setq *sample-input-ok* nil)
+        (setq *sample-input-fault* 'none)
         (setq *sample-direction-ok* (direction-fresh))
         (if (eq *input-mode* 'local-adc)
             (progn
@@ -703,12 +785,13 @@
                     (progn
                         (setq *sample-steer-v* *steer-center-v*)
                         (setq *sample-steer* 0.0)))
-                (setq *sample-input-ok*
-                    (and
-                        (analog-in-range *sample-throttle-v* *throttle-min-v* *throttle-max-v*)
-                        (or
-                            (not (steering-needed))
-                            (analog-in-range *sample-steer-v* *steer-min-v* *steer-max-v*)))))
+                (if (not (analog-in-range *sample-throttle-v* *throttle-min-v* *throttle-max-v*))
+                    (setq *sample-input-fault* 'throttle-range)
+                    (if (and
+                            (steering-needed)
+                            (not (analog-in-range *sample-steer-v* *steer-min-v* *steer-max-v*)))
+                        (setq *sample-input-fault* 'steer-range)
+                        (setq *sample-input-ok* t))))
             (if (eq *input-mode* 'can-adc)
                 (progn
                     (setq *sample-throttle-v* (canget-adc *input-can-id* *can-throttle-adc-channel*))
@@ -728,13 +811,15 @@
                         (progn
                             (setq *sample-steer-v* *steer-center-v*)
                             (setq *sample-steer* 0.0)))
-                    (setq *sample-input-ok*
-                        (and
-                            *can6-fresh*
-                            (analog-in-range *sample-throttle-v* *throttle-min-v* *throttle-max-v*)
-                            (or
-                                (not (steering-needed))
-                                (analog-in-range *sample-steer-v* *steer-min-v* *steer-max-v*)))))
+                    (if (not *can6-fresh*)
+                        (setq *sample-input-fault* 'input-can-stale)
+                        (if (not (analog-in-range *sample-throttle-v* *throttle-min-v* *throttle-max-v*))
+                            (setq *sample-input-fault* 'throttle-range)
+                            (if (and
+                                    (steering-needed)
+                                    (not (analog-in-range *sample-steer-v* *steer-min-v* *steer-max-v*)))
+                                (setq *sample-input-fault* 'steer-range)
+                                (setq *sample-input-ok* t)))))
                 (if (eq *input-mode* 'can-ppm)
                     (progn
                         (setq *sample-throttle*
@@ -753,12 +838,19 @@
                                 (setq *sample-steer-v* *steer-center-v*)
                                 (setq *sample-steer* 0.0)))
                         (setq *sample-input-ok*
-                            (and
-                                *can6-fresh*
-                                (or
-                                    (not (steering-needed))
-                                    (analog-in-range *sample-steer-v* *steer-min-v* *steer-max-v*)))))
+                            nil)
+                        (if (not *can6-fresh*)
+                            (setq *sample-input-fault* 'input-can-stale)
+                            (if (and
+                                    (steering-needed)
+                                    (not (analog-in-range *sample-steer-v* *steer-min-v* *steer-max-v*)))
+                                (setq *sample-input-fault* 'steer-range)
+                                (setq *sample-input-ok* t))))
                     nil)))
+        (setq *sample-direction-raw-sign*
+            (if *sample-direction-ok*
+                (read-direction-sign-raw)
+                *last-direction-sign*))
         (setq *sample-direction-sign*
             (if *sample-direction-ok*
                 (read-direction-sign)
@@ -814,7 +906,7 @@
                     (if *brake-active-high* (= pin-state 1) (= pin-state 0))))
             (if (eq *brake-mode* 'local-adc)
                 (debounce-brake
-                    (selector-active-hysteresis
+                    (selector-active-safe-active
                         (get-adc *brake-adc-channel*)
                         *brake-adc-threshold-v*
                         *brake-adc-active-high*
@@ -822,7 +914,7 @@
                         *brake-db-init*))
                 (if (eq *brake-mode* 'can-adc)
                     (debounce-brake
-                        (selector-active-hysteresis
+                        (selector-active-safe-active
                             (canget-adc *input-can-id* *can-brake-adc-channel*)
                             *brake-adc-threshold-v*
                             *brake-adc-active-high*
@@ -864,7 +956,7 @@
                     (if *cruise-cancel-active-high* (= pin-state 1) (= pin-state 0))))
             (if (eq *cruise-cancel-mode* 'local-adc)
                 (debounce-cruise-cancel
-                    (selector-active-hysteresis
+                    (selector-active-safe-active
                         (get-adc *cruise-cancel-adc-channel*)
                         *cruise-cancel-adc-threshold-v*
                         *cruise-cancel-adc-active-high*
@@ -872,7 +964,7 @@
                         *cruise-cancel-db-init*))
                 (if (eq *cruise-cancel-mode* 'can-adc)
                     (debounce-cruise-cancel
-                        (selector-active-hysteresis
+                        (selector-active-safe-active
                             (canget-adc *input-can-id* *can-cruise-cancel-adc-channel*)
                             *cruise-cancel-adc-threshold-v*
                             *cruise-cancel-adc-active-high*
@@ -895,7 +987,7 @@
             (if (eq *enable-mode* 'local-adc)
                 (let ((v (get-adc *enable-adc-channel*)))
                     (debounce-enable
-                        (selector-active-hysteresis
+                        (selector-active-safe-inactive
                             v
                             *enable-adc-threshold-v*
                             *enable-adc-active-high*
@@ -904,7 +996,7 @@
                 (if (eq *enable-mode* 'can-adc)
                     (let ((v (canget-adc *input-can-id* *can-enable-adc-channel*)))
                         (debounce-enable
-                            (selector-active-hysteresis
+                            (selector-active-safe-inactive
                                 v
                                 *enable-adc-threshold-v*
                                 *enable-adc-active-high*
@@ -934,21 +1026,28 @@
             (setq *cruise-active* nil)
             (print (list 'skid-fault reason)))))
 
+(defun cruise-stale-fault-reason ()
+    (if (eq *cruise-mode* 'can-adc)
+        'cruise-can-stale
+        (if (eq *cruise-cancel-mode* 'can-adc)
+            'cruise-cancel-can-stale
+            'cruise-stale)))
+
 (defun current-fault-reason (fresh direction-ok enable-ok cruise-ok brake-ok status-ok temp-ok)
     (if (not fresh)
-        'input
+        (fault-or *sample-input-fault* 'input)
         (if (not direction-ok)
-            'direction-stale
+            'direction-can-stale
             (if (not enable-ok)
-                'enable-stale
+                'enable-can-stale
                 (if (not cruise-ok)
-                    'cruise-stale
+                    (cruise-stale-fault-reason)
                     (if (not brake-ok)
-                        'brake-stale
+                        'brake-can-stale
                         (if (not status-ok)
-                            'motor-stale
+                            (fault-or *sample-motor-fault* 'motor-stale)
                             (if (not temp-ok)
-                                'thermal
+                                (fault-or *sample-thermal-fault* 'thermal)
                                 nil))))))))
 
 (defun clear-fault-if-safe (enabled throttle steer fault-now)
@@ -968,23 +1067,36 @@
         (< (abs *left-command*) *direction-change-command-threshold*)
         (< (abs *right-command*) *direction-change-command-threshold*)))
 
+(defun direction-change-neutral-safe ()
+    (and
+        (neutral-inputs *sample-throttle* *sample-steer*)
+        (wheel-commands-neutral)))
+
+(defun hold-direction-change ()
+    (progn
+        (setq *direction-lock* t)
+        (setq *cruise-active* nil)))
+
+(defun inhibit-direction-change ()
+    (progn
+        (hold-direction-change)
+        (disarm)))
+
 (defun update-direction-lock ()
     (if (and *direction-neutral-lock* (direction-selector-mode) *sample-direction-ok*)
-        (if (= *sample-direction-sign* *last-direction-sign*)
+        (if (or
+                (not (= *sample-direction-raw-sign* *last-direction-sign*))
+                (not (= *sample-direction-sign* *last-direction-sign*)))
+            (if (direction-change-neutral-safe)
+                (if (= *sample-direction-sign* *last-direction-sign*)
+                    (hold-direction-change)
+                    (progn
+                        (setq *last-direction-sign* *sample-direction-sign*)
+                        (setq *direction-lock* nil)))
+                (inhibit-direction-change))
             (if (and *direction-lock* (neutral-inputs *sample-throttle* *sample-steer*))
                 (setq *direction-lock* nil)
-                nil)
-            (if (and
-                    (neutral-inputs *sample-throttle* *sample-steer*)
-                    (wheel-commands-neutral))
-                (progn
-                    (setq *last-direction-sign* *sample-direction-sign*)
-                    (setq *direction-lock* nil))
-                (progn
-                    (setq *direction-lock* t)
-                    (setq *last-direction-sign* *sample-direction-sign*)
-                    (setq *cruise-active* nil)
-                    (disarm))))
+                nil))
         (progn
             (setq *direction-lock* nil)
             (setq *last-direction-sign* *sample-direction-sign*))))
@@ -1052,13 +1164,16 @@
 
 (defun calc-mix (throttle steer)
     (progn
+        (setq *sample-steer-derate* (steer-derate-scale throttle))
         (if (eq *mix-mode* 'same-power)
             (progn
                 (setq *mix-left* (* throttle *throttle-scale*))
                 (setq *mix-right* (* throttle *throttle-scale*)))
             (progn
-                (setq *mix-left* (+ (* throttle *throttle-scale*) (* steer *steer-scale*)))
-                (setq *mix-right* (- (* throttle *throttle-scale*) (* steer *steer-scale*)))))
+                (setq *mix-left*
+                    (+ (* throttle *throttle-scale*) (* steer *steer-scale* *sample-steer-derate*)))
+                (setq *mix-right*
+                    (- (* throttle *throttle-scale*) (* steer *steer-scale* *sample-steer-derate*)))))
         (setq *mix-magnitude* (max2 (abs *mix-left*) (abs *mix-right*)))
         (if (> *mix-magnitude* 1.0)
             (progn
@@ -1073,14 +1188,30 @@
 (defun active-msg-fresh (active id msg)
     (or (not active) (msg-fresh id msg *motor-status-stale-sec*)))
 
+(defun active-msg-stale-reason (active id msg reason)
+    (if (active-msg-fresh active id msg) 'none reason))
+
+(defun motor-status-fault-reason ()
+    (if (not *require-motor-status*)
+        'none
+        (let ((reason 'none))
+            (progn
+                (setq reason (active-msg-stale-reason (drive-left-front) *left-front-id* 1 'motor-stale-left-front))
+                (if (eq reason 'none)
+                    (setq reason (active-msg-stale-reason (drive-left-rear) *left-rear-id* 1 'motor-stale-left-rear))
+                    nil)
+                (if (eq reason 'none)
+                    (setq reason (active-msg-stale-reason (drive-right-front) *right-front-id* 1 'motor-stale-right-front))
+                    nil)
+                (if (eq reason 'none)
+                    (setq reason (active-msg-stale-reason (drive-right-rear) *right-rear-id* 1 'motor-stale-right-rear))
+                    nil)
+                reason))))
+
 (defun motors-fresh ()
-    (or
-        (not *require-motor-status*)
-        (and
-            (active-msg-fresh (drive-left-front) *left-front-id* 1)
-            (active-msg-fresh (drive-left-rear) *left-rear-id* 1)
-            (active-msg-fresh (drive-right-front) *right-front-id* 1)
-            (active-msg-fresh (drive-right-rear) *right-rear-id* 1))))
+    (progn
+        (setq *sample-motor-fault* (motor-status-fault-reason))
+        (eq *sample-motor-fault* 'none)))
 
 (defun motor-temp-ok (id)
     (and
@@ -1091,25 +1222,64 @@
 (defun active-motor-temp-ok (active id)
     (or (not active) (motor-temp-ok id)))
 
+(defun motor-temp-fault-reason (active id stale-reason fet-reason motor-reason)
+    (if (not active)
+        'none
+        (if (not (msg-fresh id 4 *motor-status-stale-sec*))
+            stale-reason
+            (if (not (< (canget-temp-fet id) *max-fet-temp-c*))
+                fet-reason
+                (if (not (< (canget-temp-motor id) *max-motor-temp-c*))
+                    motor-reason
+                    'none)))))
+
+(defun thermal-fault-reason ()
+    (if (not *enable-thermal-stop*)
+        'none
+        (let ((reason 'none))
+            (progn
+                (setq reason
+                    (motor-temp-fault-reason
+                        (drive-left-front) *left-front-id*
+                        'thermal-stale-left-front 'fet-temp-left-front 'motor-temp-left-front))
+                (if (eq reason 'none)
+                    (setq reason
+                        (motor-temp-fault-reason
+                            (drive-left-rear) *left-rear-id*
+                            'thermal-stale-left-rear 'fet-temp-left-rear 'motor-temp-left-rear))
+                    nil)
+                (if (eq reason 'none)
+                    (setq reason
+                        (motor-temp-fault-reason
+                            (drive-right-front) *right-front-id*
+                            'thermal-stale-right-front 'fet-temp-right-front 'motor-temp-right-front))
+                    nil)
+                (if (eq reason 'none)
+                    (setq reason
+                        (motor-temp-fault-reason
+                            (drive-right-rear) *right-rear-id*
+                            'thermal-stale-right-rear 'fet-temp-right-rear 'motor-temp-right-rear))
+                    nil)
+                reason))))
+
 (defun thermal-ok ()
-    (or
-        (not *enable-thermal-stop*)
-        (and
-            (active-motor-temp-ok (drive-left-front) *left-front-id*)
-            (active-motor-temp-ok (drive-left-rear) *left-rear-id*)
-            (active-motor-temp-ok (drive-right-front) *right-front-id*)
-            (active-motor-temp-ok (drive-right-rear) *right-rear-id*))))
+    (progn
+        (setq *sample-thermal-fault* (thermal-fault-reason))
+        (eq *sample-thermal-fault* 'none)))
 
 (defun send-drive-command (id value)
-    (if (eq *control-mode* 'current-rel)
-        (canset-current-rel id value *command-off-delay-sec*)
-        (if (eq *control-mode* 'current)
-            (canset-current id value *command-off-delay-sec*)
-            (if (eq *control-mode* 'duty)
-                (canset-duty id value)
-                (if (eq *control-mode* 'rpm)
-                    (canset-rpm id value)
-                    nil)))))
+    (let ((out (if (or (eq *control-mode* 'current-rel) (eq *control-mode* 'duty))
+                   (clamp value -1.0 1.0)
+                   value)))
+        (if (eq *control-mode* 'current-rel)
+            (canset-current-rel id out *command-off-delay-sec*)
+            (if (eq *control-mode* 'current)
+                (canset-current id out *command-off-delay-sec*)
+                (if (eq *control-mode* 'duty)
+                    (canset-duty id out)
+                    (if (eq *control-mode* 'rpm)
+                        (canset-rpm id out)
+                        nil))))))
 
 (defun send-brake-command (id brake)
     (if (> brake 0.0)
@@ -1168,9 +1338,20 @@
                 (gpio-write *heartbeat-gpio-pin* 0)))
         nil))
 
+(defun heartbeat-allowed ()
+    (if (eq *heartbeat-mode* 'alive)
+        t
+        (if (eq *heartbeat-mode* 'no-fault)
+            (not *fault-latched*)
+            (if (eq *heartbeat-mode* 'safe-to-drive)
+                *sample-safe*
+                (if (eq *heartbeat-mode* 'armed-only)
+                    *armed*
+                    nil)))))
+
 (defun update-heartbeat ()
     (if *heartbeat-enable*
-        (if *fault-latched*
+        (if (not (heartbeat-allowed))
             (heartbeat-off)
             (if (> (secs-since *last-heartbeat*) *heartbeat-period-sec*)
                 (progn
@@ -1317,6 +1498,13 @@
     (or
         (eq *cruise-latch-mode* 'toggle)
         (eq *cruise-latch-mode* 'hold)))
+
+(defun valid-heartbeat-mode ()
+    (or
+        (eq *heartbeat-mode* 'alive)
+        (eq *heartbeat-mode* 'no-fault)
+        (eq *heartbeat-mode* 'safe-to-drive)
+        (eq *heartbeat-mode* 'armed-only)))
 
 (defun config-check (reason ok)
     (if ok
@@ -1559,12 +1747,35 @@
         (active-motor-id-free (drive-left-rear) *left-rear-id* (drive-right-rear) *right-rear-id*)
         (active-motor-id-free (drive-right-front) *right-front-id* (drive-right-rear) *right-rear-id*)))
 
+(defun wheel-sign-valid (sign)
+    (or (= sign 1.0) (= sign -1.0)))
+
+(defun active-wheel-sign-valid (active sign)
+    (or (not active) (wheel-sign-valid sign)))
+
+(defun wheel-signs-valid ()
+    (and
+        (active-wheel-sign-valid (drive-left-front) *left-front-sign*)
+        (active-wheel-sign-valid (drive-left-rear) *left-rear-sign*)
+        (active-wheel-sign-valid (drive-right-front) *right-front-sign*)
+        (active-wheel-sign-valid (drive-right-rear) *right-rear-sign*)))
+
+(defun active-trim-output-valid (active trim)
+    (or
+        (not active)
+        (not (relative-command-mode))
+        (<= (* trim *max-command*) 1.0)))
+
 (defun wheel-trims-valid ()
     (and
         (trim-range *left-front-scale*)
         (trim-range *left-rear-scale*)
         (trim-range *right-front-scale*)
-        (trim-range *right-rear-scale*)))
+        (trim-range *right-rear-scale*)
+        (active-trim-output-valid (drive-left-front) *left-front-scale*)
+        (active-trim-output-valid (drive-left-rear) *left-rear-scale*)
+        (active-trim-output-valid (drive-right-front) *right-front-scale*)
+        (active-trim-output-valid (drive-right-rear) *right-rear-scale*)))
 
 (defun can-pins-valid ()
     (or
@@ -1602,6 +1813,9 @@
         (<= *throttle-scale* 2.0)
         (>= *steer-scale* 0.0)
         (<= *steer-scale* 2.0)
+        (>= *steer-derate-start-command* 0.0)
+        (< *steer-derate-start-command* 1.0)
+        (unit-range *steer-derate-min-scale*)
         (> *accel-rate-per-sec* 0.0)
         (> *decel-rate-per-sec* 0.0)
         (> *reverse-rate-per-sec* 0.0)
@@ -1659,6 +1873,7 @@
         (> *direction-change-command-threshold* 0.0)
         (> *loop-overrun-sec* 0.0)
         (> *heartbeat-period-sec* 0.0)
+        (valid-heartbeat-mode)
         (or (not *status-led-enable*) (> *status-led-flash-period-sec* 0.0))
         (>= *brake-command* 0.0)
         (or (not (eq *brake-mode* 'local-gpio)) (>= *brake-gpio-pin* 0))
@@ -1679,8 +1894,10 @@
             (config-check 'cruise-mode (valid-cruise-mode))
             (config-check 'cruise-cancel-mode (valid-cruise-cancel-mode))
             (config-check 'cruise-latch-mode (valid-cruise-latch-mode))
+            (config-check 'heartbeat-mode (valid-heartbeat-mode))
             (config-check 'can-pins (can-pins-valid))
             (config-check 'motor-can-ids (active-motor-ids-valid))
+            (config-check 'wheel-signs (wheel-signs-valid))
             (config-check 'wheel-trims (wheel-trims-valid))
             (config-check 'analog-calibration (valid-analog-config))
             (config-check 'selector-config (valid-selector-config))
@@ -1740,6 +1957,54 @@
             (write-status-led *status-fault-led-pin* 'off))
         nil))
 
+(defun config-error-can-stop-valid ()
+    (and
+        (valid-control-mode)
+        (valid-drive-layout)
+        (can-pins-valid)
+        (active-motor-ids-valid)
+        (brake-command-range-valid)))
+
+(defun config-error-status-leds-valid ()
+    (and
+        *status-led-enable*
+        (> *status-led-flash-period-sec* 0.0)
+        (status-led-pins-valid)))
+
+(defun config-error-heartbeat-valid ()
+    (and
+        *heartbeat-enable*
+        (valid-heartbeat-mode)
+        (valid-active-gpio-pins)))
+
+(defun setup-config-error-outputs ()
+    (progn
+        (if (config-error-can-stop-valid)
+            (start-can)
+            nil)
+        (if (config-error-heartbeat-valid)
+            (setup-heartbeat)
+            nil)
+        (if (config-error-status-leds-valid)
+            (setup-status-leds)
+            nil)))
+
+(defun config-error-safe-outputs ()
+    (progn
+        (if (config-error-can-stop-valid)
+            (send-stop)
+            nil)
+        (if (config-error-heartbeat-valid)
+            (heartbeat-off)
+            nil)
+        (if (config-error-status-leds-valid)
+            (progn
+                (update-status-led-flash)
+                (write-status-led *status-ready-led-pin* 'off)
+                (write-status-led *status-inhibit-led-pin* 'on)
+                (write-status-led *status-fault-led-pin* 'flash))
+            nil)))
+
 ; ----------------------------
 ; Startup and main loop
 ; ----------------------------
@@ -1789,16 +2054,19 @@
                 (armed-now nil))
                 (progn
                     (update-direction-lock)
+                    (setq *sample-enabled* enabled)
                     (setq fault-now
                         (current-fault-reason fresh direction-ok enable-ok cruise-ok brake-ok status-ok temp-ok))
                     (clear-fault-if-safe enabled *sample-throttle* steer fault-now)
                     (if fault-now (latch-fault fault-now) nil)
                     (setq brake-active (and brake-ok (read-brake)))
+                    (setq *sample-brake-active* brake-active)
                     (setq safe
                         (and
                             fresh direction-ok enable-ok cruise-ok brake-ok enabled status-ok temp-ok
                             (not *direction-lock*)
                             (not *fault-latched*)))
+                    (setq *sample-safe* safe)
                     (if brake-active
                         (progn
                             (disarm)
@@ -1841,4 +2109,8 @@
                      'cancel *cruise-cancel-mode*
                      'heartbeat *heartbeat-enable*
                      'status-leds *status-led-enable*))
-        (loopwhile t (sleep 1.0))))
+        (setup-config-error-outputs)
+        (loopwhile t
+            (progn
+                (config-error-safe-outputs)
+                (sleep 0.25)))))
