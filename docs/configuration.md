@@ -34,25 +34,14 @@ Controls:
 
 Use this when only two wheels have motors, but you still want left/right steering by changing the two motor speeds.
 
-Rear drive with front casters:
-
 ```lisp
-(def *drive-layout* 'two-wheel-rear)
+(def *drive-layout* 'two-wheel)
 (def *mix-mode* 'skid-steer)
 (def *input-mode* 'local-adc)
 (def *direction-mode* 'throttle-axis)
 
-(def *left-rear-id* 12)
-(def *right-rear-id* 22)
-```
-
-Front drive with rear casters:
-
-```lisp
-(def *drive-layout* 'two-wheel-front)
-(def *mix-mode* 'skid-steer)
-(def *left-front-id* 11)
-(def *right-front-id* 21)
+(def *left-id* 11)
+(def *right-id* 21)
 ```
 
 ## Example C: Two Driven Wheels, Same Power, One Centered Pot
@@ -65,16 +54,14 @@ This is the best match for a self-centering 10k potentiometer where:
 - One direction is forward.
 - The other direction is reverse.
 
-Rear drive with front casters:
-
 ```lisp
-(def *drive-layout* 'two-wheel-rear)
+(def *drive-layout* 'two-wheel)
 (def *mix-mode* 'same-power)
 (def *input-mode* 'local-adc)
 (def *direction-mode* 'throttle-axis)
 
-(def *left-rear-id* 12)
-(def *right-rear-id* 22)
+(def *left-id* 11)
+(def *right-id* 21)
 (def *throttle-adc-channel* 0)
 ```
 
@@ -161,6 +148,15 @@ Lower numbers are gentler. Higher numbers respond faster.
 ## Wheel Direction
 
 If one motor spins backward, change that wheel's sign.
+
+For two-wheel:
+
+```lisp
+(def *left-sign* 1.0)
+(def *right-sign* 1.0)
+```
+
+For four-wheel:
 
 ```lisp
 (def *left-front-sign* 1.0)

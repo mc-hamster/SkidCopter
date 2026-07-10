@@ -56,13 +56,7 @@ Pick your layout:
 or:
 
 ```lisp
-(def *drive-layout* 'two-wheel-rear)
-```
-
-or:
-
-```lisp
-(def *drive-layout* 'two-wheel-front)
+(def *drive-layout* 'two-wheel)
 ```
 
 Pick your mix mode:
@@ -157,7 +151,7 @@ Keep the wheels off the ground.
 If one wheel turns backward, change that wheel sign:
 
 ```lisp
-(def *left-front-sign* -1.0)
+(def *left-sign* -1.0)
 ```
 
 Only change the sign for the wheel that is wrong.

@@ -6,14 +6,14 @@ If a term is unfamiliar, check the [glossary](glossary.md).
 
 The short version:
 
-- `*drive-layout*` says which wheels have motors.
+- `*drive-layout*` says whether the script drives four motors or two motors.
 - `*mix-mode*` says how the controls become left and right motor commands.
 - `*input-mode*` says where the controls are connected.
 - `*control-mode*` says what type of command is sent to the motor VESCs.
 
 ## Drive Layout
 
-This setting tells the script which wheel positions are powered.
+This setting tells the script how many motor outputs to drive.
 
 ```lisp
 (def *drive-layout* 'four-wheel)
@@ -24,10 +24,9 @@ Options:
 | Setting | Use it when |
 |---|---|
 | `'four-wheel` | All four wheels have motors. |
-| `'two-wheel-front` | Only the front wheels have motors. Rear wheels are casters. |
-| `'two-wheel-rear` | Only the rear wheels have motors. Front wheels are casters. |
+| `'two-wheel` | One left motor and one right motor are driven. |
 
-Caster wheel positions are ignored. The script does not send them drive commands, stop commands, or motor-status checks.
+Inactive motor settings are ignored. The script does not send them drive commands, stop commands, or motor-status checks.
 
 ## Mix Mode
 

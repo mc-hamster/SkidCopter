@@ -82,20 +82,10 @@ Each driven motor VESC needs:
 - Signal ground shared with the Express/transceiver unless the CAN transceiver is isolated.
 - A unique CAN ID matching the script.
 
-For rear drive with front casters:
-
 ```lisp
-(def *drive-layout* 'two-wheel-rear)
-(def *left-rear-id* 12)
-(def *right-rear-id* 22)
-```
-
-For front drive with rear casters:
-
-```lisp
-(def *drive-layout* 'two-wheel-front)
-(def *left-front-id* 11)
-(def *right-front-id* 21)
+(def *drive-layout* 'two-wheel)
+(def *left-id* 11)
+(def *right-id* 21)
 ```
 
 Caster wheels do not need motor VESCs.
@@ -167,18 +157,18 @@ wiper ---- ADC channel 0
 Script settings:
 
 ```lisp
-(def *drive-layout* 'two-wheel-rear)
+(def *drive-layout* 'two-wheel)
 (def *mix-mode* 'same-power)
 (def *input-mode* 'local-adc)
 (def *direction-mode* 'throttle-axis)
+(def *left-id* 11)
+(def *right-id* 21)
 (def *throttle-adc-channel* 0)
 (def *throttle-min-v* 0.05)
 (def *throttle-center-v* 1.65)
 (def *throttle-max-v* 3.25)
 (def *throttle-deadband* 0.08)
 ```
-
-Use `'two-wheel-front` if the rear wheels are casters.
 
 If the vehicle creeps when the pot is released, increase `*throttle-deadband*`.
 

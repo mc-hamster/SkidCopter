@@ -103,6 +103,7 @@ The simulation math still uses SI units internally.
    - `Four wheel`
    - `Two wheel front`
    - `Two wheel rear`
+   The two-wheel front/rear choice is used for simulator caster placement. The loaded Lisp controller receives the generic `two-wheel` drive layout.
 2. Choose the mix mode:
    - `Skid steer`: throttle and steering mix into left/right commands.
    - `Same power`: throttle drives both sides equally.

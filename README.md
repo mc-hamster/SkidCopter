@@ -173,8 +173,14 @@ Set `*drive-layout*`:
 Options:
 
 - `'four-wheel`: all four wheel positions have motors.
-- `'two-wheel-front`: only the front left and front right wheels have motors. Rear wheels are casters.
-- `'two-wheel-rear`: only the rear left and rear right wheels have motors. Front wheels are casters.
+- `'two-wheel`: one left motor and one right motor.
+
+For two-wheel builds, set the driven motor CAN IDs with:
+
+```lisp
+(def *left-id* 11)
+(def *right-id* 21)
+```
 
 ### 2. How should the motors be controlled?
 

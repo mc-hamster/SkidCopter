@@ -15,17 +15,22 @@
 (def *can-tx-pin* 16)
 (def *can-rx-pin* 17)
 
-; Motor controller CAN IDs. Configure the driven motor VESCs to match these IDs.
+; Four-wheel motor controller CAN IDs. Configure the driven motor VESCs to
+; match these IDs when *drive-layout* is 'four-wheel.
 (def *left-front-id* 11)
 (def *left-rear-id* 12)
 (def *right-front-id* 21)
 (def *right-rear-id* 22)
 
+; Two-wheel motor controller CAN IDs. Configure the driven motor VESCs to
+; match these IDs when *drive-layout* is 'two-wheel.
+(def *left-id* 11)
+(def *right-id* 21)
+
 ; Drive layouts:
 ;   'four-wheel      - all four motor positions are driven.
-;   'two-wheel-front - only left-front and right-front are driven; rear wheels are casters.
-;   'two-wheel-rear  - only left-rear and right-rear are driven; front wheels are casters.
-; Inactive caster positions receive no CAN commands and are ignored by optional
+;   'two-wheel       - one left motor and one right motor are driven.
+; Inactive motor settings receive no CAN commands and are ignored by optional
 ; motor status/thermal checks.
 (def *drive-layout* 'four-wheel)
 
@@ -34,19 +39,27 @@
 ;   'same-power - throttle only; every driven wheel receives the same command.
 (def *mix-mode* 'skid-steer)
 
-; Per-wheel direction signs. Lift the vehicle and change signs until positive
+; Four-wheel direction signs. Lift the vehicle and change signs until positive
 ; throttle makes every driven wheel rotate in the vehicle-forward direction.
 (def *left-front-sign* 1.0)
 (def *left-rear-sign* 1.0)
 (def *right-front-sign* 1.0)
 (def *right-rear-sign* 1.0)
 
-; Per-wheel output trims. Keep these at 1.0 until bench testing shows that one
+; Two-wheel direction signs.
+(def *left-sign* 1.0)
+(def *right-sign* 1.0)
+
+; Four-wheel output trims. Keep these at 1.0 until bench testing shows that one
 ; wheel needs a small correction after motor setup and wheel direction are right.
 (def *left-front-scale* 1.0)
 (def *left-rear-scale* 1.0)
 (def *right-front-scale* 1.0)
 (def *right-rear-scale* 1.0)
+
+; Two-wheel output trims.
+(def *left-scale* 1.0)
+(def *right-scale* 1.0)
 
 ; ----------------------------
 ; Input configuration
@@ -412,17 +425,29 @@
 (defun fault-or (reason fallback)
     (if (eq reason 'none) fallback reason))
 
+(defun four-wheel-layout ()
+    (eq *drive-layout* 'four-wheel))
+
+(defun two-wheel-layout ()
+    (eq *drive-layout* 'two-wheel))
+
 (defun drive-left-front ()
-    (or (eq *drive-layout* 'four-wheel) (eq *drive-layout* 'two-wheel-front)))
+    (four-wheel-layout))
 
 (defun drive-left-rear ()
-    (or (eq *drive-layout* 'four-wheel) (eq *drive-layout* 'two-wheel-rear)))
+    (four-wheel-layout))
 
 (defun drive-right-front ()
-    (or (eq *drive-layout* 'four-wheel) (eq *drive-layout* 'two-wheel-front)))
+    (four-wheel-layout))
 
 (defun drive-right-rear ()
-    (or (eq *drive-layout* 'four-wheel) (eq *drive-layout* 'two-wheel-rear)))
+    (four-wheel-layout))
+
+(defun drive-left ()
+    (two-wheel-layout))
+
+(defun drive-right ()
+    (two-wheel-layout))
 
 (defun opposite-sign (a b)
     (or
@@ -1195,18 +1220,25 @@
     (if (not *require-motor-status*)
         'none
         (let ((reason 'none))
-            (progn
-                (setq reason (active-msg-stale-reason (drive-left-front) *left-front-id* 1 'motor-stale-left-front))
-                (if (eq reason 'none)
-                    (setq reason (active-msg-stale-reason (drive-left-rear) *left-rear-id* 1 'motor-stale-left-rear))
-                    nil)
-                (if (eq reason 'none)
-                    (setq reason (active-msg-stale-reason (drive-right-front) *right-front-id* 1 'motor-stale-right-front))
-                    nil)
-                (if (eq reason 'none)
-                    (setq reason (active-msg-stale-reason (drive-right-rear) *right-rear-id* 1 'motor-stale-right-rear))
-                    nil)
-                reason))))
+            (if (two-wheel-layout)
+                (progn
+                    (setq reason (active-msg-stale-reason (drive-left) *left-id* 1 'motor-stale-left))
+                    (if (eq reason 'none)
+                        (setq reason (active-msg-stale-reason (drive-right) *right-id* 1 'motor-stale-right))
+                        nil)
+                    reason)
+                (progn
+                    (setq reason (active-msg-stale-reason (drive-left-front) *left-front-id* 1 'motor-stale-left-front))
+                    (if (eq reason 'none)
+                        (setq reason (active-msg-stale-reason (drive-left-rear) *left-rear-id* 1 'motor-stale-left-rear))
+                        nil)
+                    (if (eq reason 'none)
+                        (setq reason (active-msg-stale-reason (drive-right-front) *right-front-id* 1 'motor-stale-right-front))
+                        nil)
+                    (if (eq reason 'none)
+                        (setq reason (active-msg-stale-reason (drive-right-rear) *right-rear-id* 1 'motor-stale-right-rear))
+                        nil)
+                    reason)))))
 
 (defun motors-fresh ()
     (progn
@@ -1237,30 +1269,43 @@
     (if (not *enable-thermal-stop*)
         'none
         (let ((reason 'none))
-            (progn
-                (setq reason
-                    (motor-temp-fault-reason
-                        (drive-left-front) *left-front-id*
-                        'thermal-stale-left-front 'fet-temp-left-front 'motor-temp-left-front))
-                (if (eq reason 'none)
+            (if (two-wheel-layout)
+                (progn
                     (setq reason
                         (motor-temp-fault-reason
-                            (drive-left-rear) *left-rear-id*
-                            'thermal-stale-left-rear 'fet-temp-left-rear 'motor-temp-left-rear))
-                    nil)
-                (if (eq reason 'none)
+                            (drive-left) *left-id*
+                            'thermal-stale-left 'fet-temp-left 'motor-temp-left))
+                    (if (eq reason 'none)
+                        (setq reason
+                            (motor-temp-fault-reason
+                                (drive-right) *right-id*
+                                'thermal-stale-right 'fet-temp-right 'motor-temp-right))
+                        nil)
+                    reason)
+                (progn
                     (setq reason
                         (motor-temp-fault-reason
-                            (drive-right-front) *right-front-id*
-                            'thermal-stale-right-front 'fet-temp-right-front 'motor-temp-right-front))
-                    nil)
-                (if (eq reason 'none)
-                    (setq reason
-                        (motor-temp-fault-reason
-                            (drive-right-rear) *right-rear-id*
-                            'thermal-stale-right-rear 'fet-temp-right-rear 'motor-temp-right-rear))
-                    nil)
-                reason))))
+                            (drive-left-front) *left-front-id*
+                            'thermal-stale-left-front 'fet-temp-left-front 'motor-temp-left-front))
+                    (if (eq reason 'none)
+                        (setq reason
+                            (motor-temp-fault-reason
+                                (drive-left-rear) *left-rear-id*
+                                'thermal-stale-left-rear 'fet-temp-left-rear 'motor-temp-left-rear))
+                        nil)
+                    (if (eq reason 'none)
+                        (setq reason
+                            (motor-temp-fault-reason
+                                (drive-right-front) *right-front-id*
+                                'thermal-stale-right-front 'fet-temp-right-front 'motor-temp-right-front))
+                        nil)
+                    (if (eq reason 'none)
+                        (setq reason
+                            (motor-temp-fault-reason
+                                (drive-right-rear) *right-rear-id*
+                                'thermal-stale-right-rear 'fet-temp-right-rear 'motor-temp-right-rear))
+                        nil)
+                    reason)))))
 
 (defun thermal-ok ()
     (progn
@@ -1309,25 +1354,37 @@
         nil))
 
 (defun send-all (left right)
-    (progn
-        (send-active-wheel (drive-left-front) *left-front-id* *left-front-sign* *left-front-scale* left)
-        (send-active-wheel (drive-left-rear) *left-rear-id* *left-rear-sign* *left-rear-scale* left)
-        (send-active-wheel (drive-right-front) *right-front-id* *right-front-sign* *right-front-scale* right)
-        (send-active-wheel (drive-right-rear) *right-rear-id* *right-rear-sign* *right-rear-scale* right)))
+    (if (two-wheel-layout)
+        (progn
+            (send-wheel *left-id* *left-sign* *left-scale* left)
+            (send-wheel *right-id* *right-sign* *right-scale* right))
+        (progn
+            (send-active-wheel (drive-left-front) *left-front-id* *left-front-sign* *left-front-scale* left)
+            (send-active-wheel (drive-left-rear) *left-rear-id* *left-rear-sign* *left-rear-scale* left)
+            (send-active-wheel (drive-right-front) *right-front-id* *right-front-sign* *right-front-scale* right)
+            (send-active-wheel (drive-right-rear) *right-rear-id* *right-rear-sign* *right-rear-scale* right))))
 
 (defun send-stop ()
-    (progn
-        (send-active-brake (drive-left-front) *left-front-id* *disable-brake-command*)
-        (send-active-brake (drive-left-rear) *left-rear-id* *disable-brake-command*)
-        (send-active-brake (drive-right-front) *right-front-id* *disable-brake-command*)
-        (send-active-brake (drive-right-rear) *right-rear-id* *disable-brake-command*)))
+    (if (two-wheel-layout)
+        (progn
+            (send-brake-command *left-id* *disable-brake-command*)
+            (send-brake-command *right-id* *disable-brake-command*))
+        (progn
+            (send-active-brake (drive-left-front) *left-front-id* *disable-brake-command*)
+            (send-active-brake (drive-left-rear) *left-rear-id* *disable-brake-command*)
+            (send-active-brake (drive-right-front) *right-front-id* *disable-brake-command*)
+            (send-active-brake (drive-right-rear) *right-rear-id* *disable-brake-command*))))
 
 (defun send-operator-brake ()
-    (progn
-        (send-active-brake (drive-left-front) *left-front-id* *brake-command*)
-        (send-active-brake (drive-left-rear) *left-rear-id* *brake-command*)
-        (send-active-brake (drive-right-front) *right-front-id* *brake-command*)
-        (send-active-brake (drive-right-rear) *right-rear-id* *brake-command*)))
+    (if (two-wheel-layout)
+        (progn
+            (send-brake-command *left-id* *brake-command*)
+            (send-brake-command *right-id* *brake-command*))
+        (progn
+            (send-active-brake (drive-left-front) *left-front-id* *brake-command*)
+            (send-active-brake (drive-left-rear) *left-rear-id* *brake-command*)
+            (send-active-brake (drive-right-front) *right-front-id* *brake-command*)
+            (send-active-brake (drive-right-rear) *right-rear-id* *brake-command*))))
 
 (defun heartbeat-off ()
     (if *heartbeat-enable*
@@ -1443,8 +1500,7 @@
 (defun valid-drive-layout ()
     (or
         (eq *drive-layout* 'four-wheel)
-        (eq *drive-layout* 'two-wheel-front)
-        (eq *drive-layout* 'two-wheel-rear)))
+        (eq *drive-layout* 'two-wheel)))
 
 (defun valid-mix-mode ()
     (or
@@ -1736,10 +1792,13 @@
 
 (defun active-motor-ids-valid ()
     (and
+        (active-motor-id-valid (drive-left) *left-id*)
+        (active-motor-id-valid (drive-right) *right-id*)
         (active-motor-id-valid (drive-left-front) *left-front-id*)
         (active-motor-id-valid (drive-left-rear) *left-rear-id*)
         (active-motor-id-valid (drive-right-front) *right-front-id*)
         (active-motor-id-valid (drive-right-rear) *right-rear-id*)
+        (active-motor-id-free (drive-left) *left-id* (drive-right) *right-id*)
         (active-motor-id-free (drive-left-front) *left-front-id* (drive-left-rear) *left-rear-id*)
         (active-motor-id-free (drive-left-front) *left-front-id* (drive-right-front) *right-front-id*)
         (active-motor-id-free (drive-left-front) *left-front-id* (drive-right-rear) *right-rear-id*)
@@ -1755,6 +1814,8 @@
 
 (defun wheel-signs-valid ()
     (and
+        (active-wheel-sign-valid (drive-left) *left-sign*)
+        (active-wheel-sign-valid (drive-right) *right-sign*)
         (active-wheel-sign-valid (drive-left-front) *left-front-sign*)
         (active-wheel-sign-valid (drive-left-rear) *left-rear-sign*)
         (active-wheel-sign-valid (drive-right-front) *right-front-sign*)
@@ -1766,12 +1827,19 @@
         (not (relative-command-mode))
         (<= (* trim *max-command*) 1.0)))
 
+(defun active-trim-range (active trim)
+    (or (not active) (trim-range trim)))
+
 (defun wheel-trims-valid ()
     (and
-        (trim-range *left-front-scale*)
-        (trim-range *left-rear-scale*)
-        (trim-range *right-front-scale*)
-        (trim-range *right-rear-scale*)
+        (active-trim-range (drive-left) *left-scale*)
+        (active-trim-range (drive-right) *right-scale*)
+        (active-trim-range (drive-left-front) *left-front-scale*)
+        (active-trim-range (drive-left-rear) *left-rear-scale*)
+        (active-trim-range (drive-right-front) *right-front-scale*)
+        (active-trim-range (drive-right-rear) *right-rear-scale*)
+        (active-trim-output-valid (drive-left) *left-scale*)
+        (active-trim-output-valid (drive-right) *right-scale*)
         (active-trim-output-valid (drive-left-front) *left-front-scale*)
         (active-trim-output-valid (drive-left-rear) *left-rear-scale*)
         (active-trim-output-valid (drive-right-front) *right-front-scale*)

@@ -21,7 +21,7 @@ The address of one VESC on the CAN bus. Each driven motor controller must have a
 Example:
 
 ```lisp
-(def *left-front-id* 11)
+(def *left-id* 11)
 ```
 
 ## Caster

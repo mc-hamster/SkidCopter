@@ -1,4 +1,9 @@
 import skidSteerSource from "../../../src/skid-steer.lisp?raw";
+import {
+  isPositionedTwoWheelLayout,
+  lispConfigForSimulator,
+  wheelNameForGenericSide,
+} from "./layoutConfig";
 import { LispRuntime, isLispSymbol, lispSymbol, parseLisp, symbolName } from "./lispRuntime";
 
 function literalDefault(expression) {
@@ -39,9 +44,18 @@ function def(name, fallback) {
   return scriptDefaults.has(name) ? scriptDefaults.get(name) : fallback;
 }
 
+const scriptDriveLayout = def("*drive-layout*", "four-wheel");
+const scriptDefaultIsTwoWheel = scriptDriveLayout === "two-wheel";
+const scriptLeftId = def("*left-id*", 11);
+const scriptRightId = def("*right-id*", 21);
+const scriptLeftSign = def("*left-sign*", 1);
+const scriptRightSign = def("*right-sign*", 1);
+const scriptLeftScale = def("*left-scale*", 1);
+const scriptRightScale = def("*right-scale*", 1);
+
 export const defaultVehicleConfig = {
   groundSurface: "asphalt",
-  driveLayout: def("*drive-layout*", "four-wheel"),
+  driveLayout: scriptDefaultIsTwoWheel ? "two-wheel-rear" : scriptDriveLayout,
   mixMode: def("*mix-mode*", "skid-steer"),
   controlMode: def("*control-mode*", "current-rel"),
   inputMode: def("*input-mode*", "local-adc"),
@@ -112,18 +126,24 @@ export const defaultVehicleConfig = {
   statusFaultLedPin: def("*status-fault-led-pin*", 13),
   statusLedActiveHigh: def("*status-led-active-high*", true),
   statusLedFlashPeriodSec: def("*status-led-flash-period-sec*", 0.5),
-  leftFrontId: def("*left-front-id*", 11),
-  leftRearId: def("*left-rear-id*", 12),
-  rightFrontId: def("*right-front-id*", 21),
-  rightRearId: def("*right-rear-id*", 22),
-  leftFrontSign: def("*left-front-sign*", 1),
-  leftRearSign: def("*left-rear-sign*", 1),
-  rightFrontSign: def("*right-front-sign*", 1),
-  rightRearSign: def("*right-rear-sign*", 1),
-  leftFrontScale: def("*left-front-scale*", 1),
-  leftRearScale: def("*left-rear-scale*", 1),
-  rightFrontScale: def("*right-front-scale*", 1),
-  rightRearScale: def("*right-rear-scale*", 1),
+  leftId: scriptLeftId,
+  rightId: scriptRightId,
+  leftFrontId: scriptDefaultIsTwoWheel ? scriptLeftId : def("*left-front-id*", 11),
+  leftRearId: scriptDefaultIsTwoWheel ? scriptLeftId : def("*left-rear-id*", 12),
+  rightFrontId: scriptDefaultIsTwoWheel ? scriptRightId : def("*right-front-id*", 21),
+  rightRearId: scriptDefaultIsTwoWheel ? scriptRightId : def("*right-rear-id*", 22),
+  leftSign: scriptLeftSign,
+  rightSign: scriptRightSign,
+  leftFrontSign: scriptDefaultIsTwoWheel ? scriptLeftSign : def("*left-front-sign*", 1),
+  leftRearSign: scriptDefaultIsTwoWheel ? scriptLeftSign : def("*left-rear-sign*", 1),
+  rightFrontSign: scriptDefaultIsTwoWheel ? scriptRightSign : def("*right-front-sign*", 1),
+  rightRearSign: scriptDefaultIsTwoWheel ? scriptRightSign : def("*right-rear-sign*", 1),
+  leftScale: scriptLeftScale,
+  rightScale: scriptRightScale,
+  leftFrontScale: scriptDefaultIsTwoWheel ? scriptLeftScale : def("*left-front-scale*", 1),
+  leftRearScale: scriptDefaultIsTwoWheel ? scriptLeftScale : def("*left-rear-scale*", 1),
+  rightFrontScale: scriptDefaultIsTwoWheel ? scriptRightScale : def("*right-front-scale*", 1),
+  rightRearScale: scriptDefaultIsTwoWheel ? scriptRightScale : def("*right-rear-scale*", 1),
 };
 
 export const defaultControlInput = {
@@ -152,7 +172,17 @@ function readOptional(runtime, form, fallback = null) {
   }
 }
 
-function activeWheels(runtime) {
+function activeWheels(runtime, config) {
+  if (isPositionedTwoWheelLayout(config.driveLayout)) {
+    const frontPowered = config.driveLayout === "two-wheel-front";
+    return {
+      leftFront: frontPowered,
+      leftRear: !frontPowered,
+      rightFront: frontPowered,
+      rightRear: !frontPowered,
+    };
+  }
+
   return {
     leftFront: lispBool(readOptional(runtime, [lispSymbol("drive-left-front")], true)),
     leftRear: lispBool(readOptional(runtime, [lispSymbol("drive-left-rear")], true)),
@@ -161,21 +191,35 @@ function activeWheels(runtime) {
   };
 }
 
-function wheelNameForId(runtime, id) {
-  const wheels = [
-    ["left-front", "*left-front-id*"],
-    ["left-rear", "*left-rear-id*"],
-    ["right-front", "*right-front-id*"],
-    ["right-rear", "*right-rear-id*"],
-  ];
+function wheelNameForId(runtime, config, id) {
+  if (isPositionedTwoWheelLayout(config.driveLayout)) {
+    if (id === runtime.getNumber("*left-id*")) {
+      return wheelNameForGenericSide(config.driveLayout, "left");
+    }
+    if (id === runtime.getNumber("*right-id*")) {
+      return wheelNameForGenericSide(config.driveLayout, "right");
+    }
+  }
+
+  const wheels = config.driveLayout === "two-wheel"
+    ? [
+        ["left", "*left-id*"],
+        ["right", "*right-id*"],
+      ]
+    : [
+        ["left-front", "*left-front-id*"],
+        ["left-rear", "*left-rear-id*"],
+        ["right-front", "*right-front-id*"],
+        ["right-rear", "*right-rear-id*"],
+      ];
   const match = wheels.find(([, variable]) => runtime.getNumber(variable) === id);
   return match ? match[0] : "can";
 }
 
-function normalizeCommands(runtime, commands) {
+function normalizeCommands(runtime, config, commands) {
   return commands.map((command) => ({
     ...command,
-    wheel: wheelNameForId(runtime, command.id),
+    wheel: wheelNameForId(runtime, config, command.id),
   }));
 }
 
@@ -229,7 +273,7 @@ export class SkidController {
   }
 
   reset(config = defaultVehicleConfig) {
-    this.runtime = new LispRuntime(skidSteerSource, config);
+    this.runtime = new LispRuntime(skidSteerSource, lispConfigForSimulator(config));
   }
 
   step(input, config, dt, time) {
@@ -237,7 +281,8 @@ export class SkidController {
       this.reset(config);
     }
 
-    const snapshot = this.runtime.step(input, config, time);
+    const lispConfig = lispConfigForSimulator(config);
+    const snapshot = this.runtime.step(input, lispConfig, time);
     const runtime = this.runtime;
     const sample = {
       inputOk: runtime.getBoolean("*sample-input-ok*"),
@@ -279,9 +324,9 @@ export class SkidController {
       rightCommand: runtime.getNumber("*right-command*"),
       mixLeft: runtime.getNumber("*mix-left*"),
       mixRight: runtime.getNumber("*mix-right*"),
-      canOut: normalizeCommands(runtime, snapshot.canOut),
+      canOut: normalizeCommands(runtime, config, snapshot.canOut),
       statusLights: statusLights(runtime, snapshot.gpioWrites),
-      activeWheels: activeWheels(runtime),
+      activeWheels: activeWheels(runtime, config),
       prints: snapshot.prints,
     };
   }

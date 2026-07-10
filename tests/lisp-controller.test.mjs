@@ -3,12 +3,16 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
+import { lispConfigForSimulator, wheelNameForGenericSide } from "../simulator/src/sim/layoutConfig.js";
 import { LispRuntime, lispSymbol, parseLisp, symbolName } from "../simulator/src/sim/lispRuntime.js";
+import { createInitialVehicleState, stepVehicle } from "../simulator/src/sim/vehiclePhysics.js";
 
 const SOURCE_PATH = new URL("../src/skid-steer.lisp", import.meta.url);
 const SOURCE = readFileSync(SOURCE_PATH, "utf8");
 
 const IDS = {
+  left: 31,
+  right: 41,
   leftFront: 11,
   leftRear: 12,
   rightFront: 21,
@@ -34,6 +38,8 @@ const BASE_CONFIG = {
   reverseRatePerSec: 100,
   loopPeriodSec: 0.02,
   commandOffDelaySec: 0.08,
+  leftId: IDS.left,
+  rightId: IDS.right,
   leftFrontId: IDS.leftFront,
   leftRearId: IDS.leftRear,
   rightFrontId: IDS.rightFront,
@@ -60,13 +66,9 @@ const LAYOUTS = {
     active: ["leftFront", "leftRear", "rightFront", "rightRear"],
     inactive: [],
   },
-  "two-wheel-front": {
-    active: ["leftFront", "rightFront"],
-    inactive: ["leftRear", "rightRear"],
-  },
-  "two-wheel-rear": {
-    active: ["leftRear", "rightRear"],
-    inactive: ["leftFront", "rightFront"],
+  "two-wheel": {
+    active: ["left", "right"],
+    inactive: ["leftFront", "leftRear", "rightFront", "rightRear"],
   },
 };
 
@@ -199,12 +201,16 @@ function symbol(value) {
 
 function assertActiveWheelPredicates(runtime, layout) {
   const expected = {
+    left: activeWheelNames(layout).includes("left"),
+    right: activeWheelNames(layout).includes("right"),
     leftFront: activeWheelNames(layout).includes("leftFront"),
     leftRear: activeWheelNames(layout).includes("leftRear"),
     rightFront: activeWheelNames(layout).includes("rightFront"),
     rightRear: activeWheelNames(layout).includes("rightRear"),
   };
 
+  assert.equal(bool(call(runtime, "drive-left")), expected.left);
+  assert.equal(bool(call(runtime, "drive-right")), expected.right);
   assert.equal(bool(call(runtime, "drive-left-front")), expected.leftFront);
   assert.equal(bool(call(runtime, "drive-left-rear")), expected.leftRear);
   assert.equal(bool(call(runtime, "drive-right-front")), expected.rightFront);
@@ -347,36 +353,114 @@ for (const layout of Object.keys(LAYOUTS)) {
   });
 }
 
-test("two-wheel layouts ignore inactive wheel ID, sign, status, and thermal failures", () => {
-  const front = makeHarness({
-    driveLayout: "two-wheel-front",
-    leftRearId: IDS.leftFront,
-    leftRearSign: 0,
-    requireMotorStatus: true,
-    enableThermalStop: true,
-  });
-  assert.match(startupLine(front.runtime), /^\(skid-start /);
-  front.step({ motorStatusStale: [IDS.leftRear, IDS.rightRear], thermalFault: [IDS.leftRear, IDS.rightRear] });
-  assert.equal(front.runtime.getBoolean("*fault-latched*"), false);
-
-  const frontActiveStale = makeHarness({ driveLayout: "two-wheel-front", requireMotorStatus: true });
-  frontActiveStale.step({ motorStatusStale: [IDS.leftFront] });
-  assert.equal(symbol(frontActiveStale.runtime.getValue("*fault-reason*")), "motor-stale-left-front");
-
-  const rear = makeHarness({
-    driveLayout: "two-wheel-rear",
-    leftFrontId: IDS.leftRear,
+test("two-wheel layout ignores inactive four-wheel ID, sign, status, and thermal failures", () => {
+  const harness = makeHarness({
+    driveLayout: "two-wheel",
+    leftFrontId: IDS.left,
     leftFrontSign: 0,
+    leftFrontScale: 3,
     requireMotorStatus: true,
     enableThermalStop: true,
   });
-  assert.match(startupLine(rear.runtime), /^\(skid-start /);
-  rear.step({ motorStatusStale: [IDS.leftFront, IDS.rightFront], thermalFault: [IDS.leftFront, IDS.rightFront] });
-  assert.equal(rear.runtime.getBoolean("*fault-latched*"), false);
+  assert.match(startupLine(harness.runtime), /^\(skid-start /);
+  harness.step({
+    motorStatusStale: [IDS.leftFront, IDS.leftRear, IDS.rightFront, IDS.rightRear],
+    thermalFault: [IDS.leftFront, IDS.leftRear, IDS.rightFront, IDS.rightRear],
+  });
+  assert.equal(harness.runtime.getBoolean("*fault-latched*"), false);
 
-  const rearActiveThermal = makeHarness({ driveLayout: "two-wheel-rear", enableThermalStop: true });
-  rearActiveThermal.step({ thermalFault: [IDS.rightRear] });
-  assert.equal(symbol(rearActiveThermal.runtime.getValue("*fault-reason*")), "fet-temp-right-rear");
+  const activeStale = makeHarness({ driveLayout: "two-wheel", requireMotorStatus: true });
+  activeStale.step({ motorStatusStale: [IDS.left] });
+  assert.equal(symbol(activeStale.runtime.getValue("*fault-reason*")), "motor-stale-left");
+
+  const activeThermal = makeHarness({ driveLayout: "two-wheel", enableThermalStop: true });
+  activeThermal.step({ thermalFault: [IDS.right] });
+  assert.equal(symbol(activeThermal.runtime.getValue("*fault-reason*")), "fet-temp-right");
+});
+
+test("two-wheel layout applies generic signs and trims", () => {
+  const harness = makeHarness({
+    driveLayout: "two-wheel",
+    leftSign: -1,
+    rightScale: 0.5,
+  });
+  arm(harness);
+
+  const commands = commandsById(harness.step({ throttle: 0.5 }).canOut);
+  approxCommand(commands.get(IDS.left), -0.1);
+  approxCommand(commands.get(IDS.right), 0.05);
+});
+
+test("simulator maps positioned two-wheel layouts to generic Lisp config", () => {
+  const front = lispConfigForSimulator({
+    ...BASE_CONFIG,
+    driveLayout: "two-wheel-front",
+    leftFrontId: 101,
+    rightFrontId: 102,
+    leftFrontSign: -1,
+    rightFrontSign: 1,
+    leftFrontScale: 0.8,
+    rightFrontScale: 0.9,
+  });
+  assert.equal(front.driveLayout, "two-wheel");
+  assert.equal(front.leftId, 101);
+  assert.equal(front.rightId, 102);
+  assert.equal(front.leftSign, -1);
+  assert.equal(front.rightSign, 1);
+  assert.equal(front.leftScale, 0.8);
+  assert.equal(front.rightScale, 0.9);
+  assert.equal(wheelNameForGenericSide("two-wheel-front", "left"), "left-front");
+  assert.equal(wheelNameForGenericSide("two-wheel-front", "right"), "right-front");
+
+  const rear = lispConfigForSimulator({
+    ...BASE_CONFIG,
+    driveLayout: "two-wheel-rear",
+    leftRearId: 201,
+    rightRearId: 202,
+    leftRearSign: 1,
+    rightRearSign: -1,
+    leftRearScale: 1.1,
+    rightRearScale: 1.2,
+  });
+  assert.equal(rear.driveLayout, "two-wheel");
+  assert.equal(rear.leftId, 201);
+  assert.equal(rear.rightId, 202);
+  assert.equal(rear.leftSign, 1);
+  assert.equal(rear.rightSign, -1);
+  assert.equal(rear.leftScale, 1.1);
+  assert.equal(rear.rightScale, 1.2);
+  assert.equal(wheelNameForGenericSide("two-wheel-rear", "left"), "left-rear");
+  assert.equal(wheelNameForGenericSide("two-wheel-rear", "right"), "right-rear");
+});
+
+test("simulator physics keeps positioned two-wheel caster placement", () => {
+  const physicsConfig = {
+    driveLayout: "two-wheel-front",
+    reverseScale: 0.6,
+    maxSpeedMps: 4.4,
+    massKg: 180,
+    driveForceN: 520,
+    brakeForceN: 900,
+    trackWidthM: 1.28,
+    wheelbaseM: 1.72,
+    casterSwivelRateRadPerSec: 5,
+    casterRollingDragN: 35,
+    casterScrubForceN: 220,
+    tireFrictionG: 0.85,
+    slipResponsePerSec: 3.5,
+  };
+  const telemetry = { state: "drive", leftCommand: 0.4, rightCommand: 0.1 };
+
+  const frontDrive = stepVehicle(createInitialVehicleState(), telemetry, physicsConfig, 0.1);
+  assert.equal(frontDrive.casterAxle, "rear");
+
+  const rearDrive = stepVehicle(
+    createInitialVehicleState(),
+    telemetry,
+    { ...physicsConfig, driveLayout: "two-wheel-rear" },
+    0.1
+  );
+  assert.equal(rearDrive.casterAxle, "front");
 });
 
 test("control modes call the expected CAN functions", () => {
@@ -1174,4 +1258,24 @@ test("startup config validation reports each config-check reason", () => {
       `expected ${expectedReason} from ${JSON.stringify(overrides)}, got ${configErrorReason(runtime)}`
     );
   }
+});
+
+test("two-wheel startup config validates generic settings only", () => {
+  let runtime = makeRuntime({
+    driveLayout: "two-wheel",
+    leftFrontId: 0,
+    leftFrontSign: 0,
+    leftFrontScale: 3,
+  });
+  assert.match(startupLine(runtime), /^\(skid-start /);
+  assert.equal(configErrorReason(runtime), "");
+
+  runtime = makeRuntime({ driveLayout: "two-wheel", rightId: IDS.left });
+  assert.match(configErrorReason(runtime), /reason motor-can-ids/);
+
+  runtime = makeRuntime({ driveLayout: "two-wheel", leftSign: 0 });
+  assert.match(configErrorReason(runtime), /reason wheel-signs/);
+
+  runtime = makeRuntime({ driveLayout: "two-wheel", leftScale: 3 });
+  assert.match(configErrorReason(runtime), /reason wheel-trims/);
 });
